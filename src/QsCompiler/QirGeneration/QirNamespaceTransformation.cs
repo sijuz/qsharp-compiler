@@ -1,15 +1,18 @@
-﻿using System;
+﻿// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
+using System;
 using Microsoft.Quantum.QsCompiler.SyntaxTokens;
 using Microsoft.Quantum.QsCompiler.SyntaxTree;
 using Microsoft.Quantum.QsCompiler.Transformations.Core;
 
-namespace Microsoft.Quantum.QsCompiler.QirGenerator
+namespace Microsoft.Quantum.QsCompiler.QIR
 {
     using QsArgumentTuple = QsTuple<LocalVariableDeclaration<QsLocalSymbol>>;
 
     internal class QirNamespaceTransformation : NamespaceTransformation<GenerationContext>
     {
-        internal class TransformationContext
+        private class TransformationContext
         {
             private QsCallable? currentCallable = null;
             private QsSpecialization? currentSpecialization = null;
@@ -45,6 +48,8 @@ namespace Microsoft.Quantum.QsCompiler.QirGenerator
         {
         }
 
+        // public overrides
+
         public override QsCallable OnCallableDeclaration(QsCallable c)
         {
             if (c.Kind == QsCallableKind.TypeConstructor)
@@ -68,10 +73,10 @@ namespace Microsoft.Quantum.QsCompiler.QirGenerator
 
         public override Tuple<QsArgumentTuple, QsScope> OnProvidedImplementation(QsArgumentTuple argTuple, QsScope body)
         {
-            this.SharedState.StartSpecialization();
+            this.SharedState.StartFunction();
             this.SharedState.GenerateFunctionHeader(this.context.GetCurrentSpecialization(), argTuple);
             this.Transformation.Statements.OnScope(body);
-            this.SharedState.EndSpecialization();
+            this.SharedState.EndFunction();
             this.context.SetCurrentSpecialization(null);
             return new Tuple<QsArgumentTuple, QsScope>(argTuple, body);
         }
