@@ -1,20 +1,21 @@
-﻿using System;
+﻿// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 using System.Collections.Generic;
-using System.IO;
-using Microsoft.Quantum.QsCompiler.QirGenerator;
+using Microsoft.Quantum.QsCompiler.QIR;
 using Microsoft.Quantum.QsCompiler.SyntaxTree;
 
 namespace Microsoft.Quantum.QsCompiler.BuiltInRewriteSteps
 {
     public class QirGeneration : IRewriteStep
     {
-        private readonly Configuration config;
+        private readonly string outputFile;
 
         private readonly List<IRewriteStep.Diagnostic> diagnostics = new List<IRewriteStep.Diagnostic>();
 
         public QirGeneration(string outputFileName)
         {
-            this.config = new Configuration(outputFileName, generateInteropWrappers: true);
+            this.outputFile = outputFileName;
         }
 
         /// <inheritdoc/>
@@ -53,20 +54,10 @@ namespace Microsoft.Quantum.QsCompiler.BuiltInRewriteSteps
         /// <inheritdoc/>
         public bool Transformation(QsCompilation compilation, out QsCompilation transformed)
         {
-            try
-            {
-                var transformation = new QirTransformation(compilation, this.config);
-                transformation.Apply();
-                transformation.Emit();
-            }
-            catch (Exception ex)
-            {
-                this.diagnostics.Add(new IRewriteStep.Diagnostic() { Severity = CodeAnalysis.DiagnosticSeverity.Warning, Message = ex.Message });
-                File.WriteAllText($"{this.config.OutputFileName}.ll", $"Exception: {ex.Message} at:\n{ex.StackTrace}");
-            }
-
+            var generator = new Generator(compilation, new Configuration());
+            generator.Apply();
+            generator.Emit(this.outputFile);
             transformed = compilation;
-
             return true;
         }
     }
