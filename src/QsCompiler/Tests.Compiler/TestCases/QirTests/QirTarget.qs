@@ -2,49 +2,51 @@
 // Licensed under the MIT License.
 
 namespace Microsoft.Quantum.Instructions {
-    @Intrinsic("h")
+    open Microsoft.Quantum.Targeting;
+
+    @TargetInstruction("h")
     operation PhysH (qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("x")
+    @TargetInstruction("x")
     operation PhysX (qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("s")
+    @TargetInstruction("s")
     operation PhysS (qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("t")
+    @TargetInstruction("t")
     operation PhysT (qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("rx")
+    @TargetInstruction("rx")
     operation PhysRx (theta : Double, qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("rz")
+    @TargetInstruction("rz")
     operation PhysRz (theta : Double, qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("cnot")
+    @TargetInstruction("cnot")
     operation PhysCNOT (control : Qubit, target : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("mz")
+    @TargetInstruction("mz")
     operation PhysM (qb : Qubit) : Result
     {
         body intrinsic;
