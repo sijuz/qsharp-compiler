@@ -2,61 +2,69 @@
 // Licensed under the MIT License.
 
 namespace Microsoft.Quantum.Instructions {
-    @Intrinsic("h")
+    open Microsoft.Quantum.Targeting;
+
+    @TargetInstruction("h")
     operation PhysH (qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("s")
-    operation PhysS (qb : Qubit) : Unit 
-    {
-        body intrinsic;
-    }
-
-    @Intrinsic("z")
-    operation PhysZ (qb : Qubit) : Unit 
-    {
-        body intrinsic;
-    }
-
-    @Intrinsic("x")
+    @TargetInstruction("x")
     operation PhysX (qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("rx")
+    @TargetInstruction("z")
+    operation PhysZ (qb : Qubit) : Unit 
+    {
+        body intrinsic;
+    }
+
+    @TargetInstruction("s")
+    operation PhysS (qb : Qubit) : Unit 
+    {
+        body intrinsic;
+    }
+
+    @TargetInstruction("t")
+    operation PhysT (qb : Qubit) : Unit 
+    {
+        body intrinsic;
+    }
+
+    @TargetInstruction("rx")
     operation PhysRx (theta : Double, qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("rz")
+    @TargetInstruction("rz")
     operation PhysRz (theta : Double, qb : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("cnot")
+    @TargetInstruction("cnot")
     operation PhysCNOT (control : Qubit, target : Qubit) : Unit 
     {
         body intrinsic;
     }
 
-    @Intrinsic("mz")
+    @TargetInstruction("mz")
     operation PhysM (qb : Qubit) : Result
     {
         body intrinsic;
     }
 
-    @Intrinsic("measure")
+    @TargetInstruction("measure")
     operation PhysMeasure (bases : Pauli[], qubits : Qubit[]) : Result
     {
         body intrinsic;
     }
 
-    @Intrinsic("intAsDouble")
+    @TargetInstruction("intAsDouble")
     function IntAsDoubleImpl(i : Int) : Double
     {
         body intrinsic;
@@ -111,7 +119,13 @@ namespace Microsoft.Quantum.Intrinsic {
 	}
 
     @Inline()
-    operation Mz(qb : Qubit) : Result
+    operation T(qb : Qubit) : Unit
+    {
+        PhysT(qb);  
+	}
+
+    @Inline()
+    operation M(qb : Qubit) : Result
     {
         return PhysM(qb);  
 	}
@@ -120,6 +134,24 @@ namespace Microsoft.Quantum.Intrinsic {
     operation Measure(bases : Pauli[], qubits : Qubit[]) : Result
     {
         return PhysMeasure(bases, qubits);
+    }
+
+    operation MResetZ(qb : Qubit) : Result
+    {
+        let res = M(qb);
+        if (res == One)
+        {
+            X(qb);
+        }
+        return res;
+    }
+
+    operation Reset(qb : Qubit) : Unit
+    {
+        if (M(qb) == One)
+        {
+            X(qb);
+        }
     }
 
     @Inline()
@@ -137,7 +169,7 @@ namespace Microsoft.Quantum.Intrinsic {
 
     @Inline()
     operation Rz(theta : Double, qb : Qubit) : Unit
-    is Adj {
+    is Adj + Ctl {
         body  (...)
         {
             PhysRz(theta, qb);  
@@ -146,6 +178,20 @@ namespace Microsoft.Quantum.Intrinsic {
         {
             PhysRz(-theta, qb);  
 		}
+        controlled (ctls, ...)
+        {
+            PhysRz(theta / 2.0, qb);
+            CNOT(ctls[0], qb);
+            PhysRz(-theta / 2.0, qb);
+            CNOT(ctls[0], qb);
+        }
+        controlled adjoint (ctls, ...)
+        {
+            PhysRz(-theta / 2.0, qb);
+            CNOT(ctls[0], qb);
+            PhysRz(theta / 2.0, qb);
+            CNOT(ctls[0], qb);
+        }
 	}
 
     @Inline()
@@ -162,5 +208,11 @@ namespace Microsoft.Quantum.Intrinsic {
     function IntAsDouble(i : Int) : Double
     {
         return IntAsDoubleImpl(i);
+    }
+
+    @Inline()
+    function PI() : Double
+    {
+        return 3.14159265357989;
     }
 }
