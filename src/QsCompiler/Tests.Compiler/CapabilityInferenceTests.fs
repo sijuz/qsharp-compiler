@@ -12,7 +12,8 @@ open Xunit
 let private callables =
     CompilerTests.Compile
         ("TestCases",
-         [ "CapabilityTests/Verification.qs"; "CapabilityTests/Inference.qs" ],
+         [ "CapabilityTests/Verification.qs"
+           "CapabilityTests/Inference.qs" ],
          references = [ (File.ReadAllLines "ReferenceTargets.txt").[1] ])
     |> fun compilation -> compilation.BuiltCompilation
     |> CapabilityInference.InferCapabilities
@@ -21,9 +22,13 @@ let private callables =
 
 /// Asserts that the inferred capability of the callable with the given name matches the expected capability.
 let private expect capability name =
-    let fullName = CapabilityVerificationTests.testName name
-    let actual = BuiltIn.TryGetRequiredCapability callables.[fullName].Attributes
-    Assert.Equal (Value capability, actual)
+    let fullName =
+        CapabilityVerificationTests.testName name
+
+    let actual =
+        BuiltIn.TryGetRequiredCapability callables.[fullName].Attributes
+
+    Assert.Equal(Value capability, actual)
 
 [<Fact>]
 let ``Infers BasicQuantumFunctionality by source code`` () =
@@ -69,30 +74,28 @@ let ``Infers FullComputation by source code`` () =
 [<Fact>]
 let ``Allows overriding capabilities with attribute`` () =
     expect BasicQuantumFunctionality "OverrideBmfToBqf"
+
     [ "OverrideBqfToBmf"
       "OverrideFullToBmf"
       "ExplicitBmf" ]
     |> List.iter (expect BasicMeasurementFeedback)
+
     expect FullComputation "OverrideBmfToFull"
 
 [<Fact>]
 let ``Infers single dependency`` () =
-    [ "CallBmfA"
-      "CallBmfB" ]
-    |> List.iter (expect BasicMeasurementFeedback)
+    [ "CallBmfA"; "CallBmfB" ] |> List.iter (expect BasicMeasurementFeedback)
 
 [<Fact>]
 let ``Infers two side-by-side dependencies`` () =
     expect BasicMeasurementFeedback "CallBmfFullB"
-    [ "CallBmfFullA"
-      "CallBmfFullC" ]
-    |> List.iter (expect FullComputation)
+
+    [ "CallBmfFullA"; "CallBmfFullC" ] |> List.iter (expect FullComputation)
 
 [<Fact>]
 let ``Infers two chained dependencies`` () =
-    [ "CallFullA"
-      "CallFullB" ]
-    |> List.iter (expect FullComputation)
+    [ "CallFullA"; "CallFullB" ] |> List.iter (expect FullComputation)
+
     expect BasicMeasurementFeedback "CallFullC"
 
 [<Fact>]
@@ -100,6 +103,7 @@ let ``Allows safe override`` () =
     [ "CallFullOverrideA"
       "CallFullOverrideB" ]
     |> List.iter (expect FullComputation)
+
     expect BasicMeasurementFeedback "CallFullOverrideC"
 
 [<Fact>]
@@ -107,6 +111,7 @@ let ``Allows unsafe override`` () =
     [ "CallBmfOverrideA"
       "CallBmfOverrideB" ]
     |> List.iter (expect BasicMeasurementFeedback)
+
     expect FullComputation "CallBmfOverrideC"
 
 [<Fact>]
@@ -122,6 +127,4 @@ let ``Infers with indirect recursion`` () =
 
 [<Fact>]
 let ``Infers with uncalled reference`` () =
-    [ "ReferenceBmfA"
-      "ReferenceBmfB" ]
-    |> List.iter (expect BasicMeasurementFeedback)
+    [ "ReferenceBmfA"; "ReferenceBmfB" ] |> List.iter (expect BasicMeasurementFeedback)
