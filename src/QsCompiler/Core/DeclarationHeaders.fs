@@ -6,6 +6,7 @@ namespace Microsoft.Quantum.QsCompiler
 open System
 open System.Collections.Immutable
 open System.IO
+open System.Runtime.Serialization
 open System.Text
 open Microsoft.Quantum.QsCompiler.DataTypes
 open Microsoft.Quantum.QsCompiler.Serialization
@@ -13,7 +14,6 @@ open Microsoft.Quantum.QsCompiler.SyntaxExtensions
 open Microsoft.Quantum.QsCompiler.SyntaxTokens
 open Microsoft.Quantum.QsCompiler.SyntaxTree
 open Newtonsoft.Json
-
 
 /// to be removed in future releases
 module DeclarationHeader = 
@@ -95,30 +95,51 @@ module DeclarationHeader =
         Serializer.Serialize(new StringWriter(builder), obj)
         builder.ToString()
 
+/// <summary>
+/// The schema for <see cref="TypeDeclarationHeader"/> that is used with JSON serialization.
+/// </summary>
+[<CLIMutable>]
+[<DataContract>]
+type private TypeDeclarationHeaderSchema = {
+    [<DataMember>] QualifiedName : QsQualifiedName
+    [<DataMember>] Attributes : ImmutableArray<QsDeclarationAttribute>
+    [<DataMember>] Modifiers : Modifiers
+    [<DataMember>] SourceFile : string
+    [<DataMember>] Position : DeclarationHeader.Offset
+    [<DataMember>] SymbolRange : DeclarationHeader.Range
+    [<DataMember>] Type : ResolvedType
+    [<DataMember>] TypeItems : QsTuple<QsTypeItem>
+    [<DataMember>] Documentation : ImmutableArray<string>
+}
 
 /// to be removed in future releases
 type TypeDeclarationHeader = {
     QualifiedName   : QsQualifiedName
     Attributes      : ImmutableArray<QsDeclarationAttribute>
     Modifiers       : Modifiers
-    SourceFile      : string
+    Source          : Source
     Position        : DeclarationHeader.Offset
     SymbolRange     : DeclarationHeader.Range
     Type            : ResolvedType
     TypeItems       : QsTuple<QsTypeItem>
     Documentation   : ImmutableArray<string>
 }
-    with 
+    with
+
     [<JsonIgnore>]
     member this.Location = DeclarationHeader.CreateLocation (this.Position, this.SymbolRange)
-    member this.FromSource source = {this with SourceFile = source}
+
+    [<JsonIgnore; Obsolete "Replaced by Source.">]
+    member this.SourceFile = Source.assemblyOrCode this.Source
+
+    member this.FromSource source = {this with Source = source}
     member this.AddAttribute att = {this with Attributes = this.Attributes.Add att}
 
     static member New (customType : QsCustomType) = {
         QualifiedName   = customType.FullName
         Attributes      = customType.Attributes
         Modifiers       = customType.Modifiers
-        SourceFile      = customType.SourceFile
+        Source          = customType.Source
         Position        = customType.Location |> DeclarationHeader.CreateOffset
         SymbolRange     = customType.Location |> DeclarationHeader.CreateRange
         Type            = customType.Type
@@ -126,16 +147,61 @@ type TypeDeclarationHeader = {
         Documentation   = customType.Documentation
     }
 
+    /// <summary>
+    /// Creates a <see cref="TypeDeclarationHeader"/> from a <see cref="TypeDeclarationHeaderSchema"/>.
+    /// </summary>
+    static member private OfSchema (header : TypeDeclarationHeaderSchema) =
+        { QualifiedName = header.QualifiedName
+          Attributes = header.Attributes
+          Modifiers = header.Modifiers
+          Source = { CodePath = header.SourceFile; AssemblyPath = Null }
+          Position = header.Position
+          SymbolRange = header.SymbolRange
+          Type = header.Type
+          TypeItems = header.TypeItems
+          Documentation = header.Documentation }
+
     static member FromJson json =
-        let (success, header) = DeclarationHeader.FromJson<TypeDeclarationHeader> json
+        let success, schema = DeclarationHeader.FromJson<TypeDeclarationHeaderSchema> json
+        let header = TypeDeclarationHeader.OfSchema schema
         let attributesAreNullOrDefault = Object.ReferenceEquals(header.Attributes, null) || header.Attributes.IsDefault
         let header = if attributesAreNullOrDefault then {header with Attributes = ImmutableArray.Empty} else header // no reason to raise an error
         if not (Object.ReferenceEquals(header.TypeItems, null)) then success, header
         else false, {header with TypeItems = ImmutableArray.Create (header.Type |> Anonymous |> QsTupleItem) |> QsTuple}
 
-    member this.ToJson() : string  =
-        DeclarationHeader.ToJson this
+    /// <summary>
+    /// The <see cref="TypeDeclarationHeaderSchema"/> for this <see cref="TypeDeclarationHeader"/>.
+    /// </summary>
+    member private this.Schema =
+        { QualifiedName = this.QualifiedName
+          Attributes = this.Attributes
+          Modifiers = this.Modifiers
+          SourceFile = this.Source.CodePath
+          Position = this.Position
+          SymbolRange = this.SymbolRange
+          Type = this.Type
+          TypeItems = this.TypeItems
+          Documentation = this.Documentation }
 
+    member this.ToJson() = DeclarationHeader.ToJson this.Schema
+
+/// <summary>
+/// The schema for <see cref="CallableDeclarationHeader"/> that is used with JSON serialization.
+/// </summary>
+[<CLIMutable>]
+[<DataContract>]
+type private CallableDeclarationHeaderSchema = {
+    [<DataMember>] Kind : QsCallableKind
+    [<DataMember>] QualifiedName : QsQualifiedName
+    [<DataMember>] Attributes : ImmutableArray<QsDeclarationAttribute>
+    [<DataMember>] Modifiers : Modifiers
+    [<DataMember>] SourceFile : string
+    [<DataMember>] Position : DeclarationHeader.Offset
+    [<DataMember>] SymbolRange : DeclarationHeader.Range
+    [<DataMember>] ArgumentTuple : QsTuple<LocalVariableDeclaration<QsLocalSymbol>>
+    [<DataMember>] Signature : ResolvedSignature
+    [<DataMember>] Documentation : ImmutableArray<string>
+}
 
 /// to be removed in future releases
 type CallableDeclarationHeader = { 
@@ -143,17 +209,22 @@ type CallableDeclarationHeader = {
     QualifiedName   : QsQualifiedName
     Attributes      : ImmutableArray<QsDeclarationAttribute>
     Modifiers       : Modifiers
-    SourceFile      : string
+    Source          : Source
     Position        : DeclarationHeader.Offset
     SymbolRange     : DeclarationHeader.Range
     ArgumentTuple   : QsTuple<LocalVariableDeclaration<QsLocalSymbol>>
     Signature       : ResolvedSignature
     Documentation   : ImmutableArray<string>
 }
-    with 
+    with
+
     [<JsonIgnore>]
     member this.Location = DeclarationHeader.CreateLocation (this.Position, this.SymbolRange)
-    member this.FromSource source = {this with SourceFile = source}
+
+    [<JsonIgnore; Obsolete "Replaced by Source.">]
+    member this.SourceFile = Source.assemblyOrCode this.Source
+
+    member this.FromSource source = {this with Source = source}
     member this.AddAttribute att = {this with Attributes = this.Attributes.Add att}
 
     static member New (callable : QsCallable) = {
@@ -161,13 +232,28 @@ type CallableDeclarationHeader = {
         QualifiedName   = callable.FullName
         Attributes      = callable.Attributes
         Modifiers       = callable.Modifiers
-        SourceFile      = callable.SourceFile
+        Source          = callable.Source
         Position        = callable.Location |> DeclarationHeader.CreateOffset
         SymbolRange     = callable.Location |> DeclarationHeader.CreateRange
         ArgumentTuple   = callable.ArgumentTuple
         Signature       = callable.Signature
         Documentation   = callable.Documentation
     }
+
+    /// <summary>
+    /// Creates a <see cref="CallableDeclarationHeader"/> from a <see cref="CallableDeclarationHeaderSchema"/>.
+    /// </summary>
+    static member private OfSchema (header : CallableDeclarationHeaderSchema) =
+        { Kind = header.Kind
+          QualifiedName = header.QualifiedName
+          Attributes = header.Attributes
+          Modifiers = header.Modifiers
+          Source = { CodePath = header.SourceFile; AssemblyPath = Null }
+          Position = header.Position
+          SymbolRange = header.SymbolRange
+          ArgumentTuple = header.ArgumentTuple
+          Signature = header.Signature
+          Documentation = header.Documentation }
 
     static member FromJson json =
         let info = {IsMutable = false; HasLocalQuantumDependency = false} 
@@ -176,7 +262,8 @@ type CallableDeclarationHeader = {
             | QsTupleItem (decl : LocalVariableDeclaration<_>) -> QsTupleItem {decl with InferredInformation = info}
         // we need to make sure that all fields that could possibly be null after deserializing 
         // due to changes of fields over time are initialized to a proper value
-        let (success, header) = DeclarationHeader.FromJson<CallableDeclarationHeader> json
+        let success, schema = DeclarationHeader.FromJson<CallableDeclarationHeaderSchema> json
+        let header = CallableDeclarationHeader.OfSchema schema
         let attributesAreNullOrDefault = Object.ReferenceEquals(header.Attributes, null) || header.Attributes.IsDefault
         let header = if attributesAreNullOrDefault then {header with Attributes = ImmutableArray.Empty} else header // no reason to raise an error
         let header = {header with ArgumentTuple = header.ArgumentTuple |> setInferredInfo}
@@ -184,9 +271,39 @@ type CallableDeclarationHeader = {
             false, {header with Signature = {header.Signature with Information = CallableInformation.Invalid}}
         else success, header
 
-    member this.ToJson() : string  =
-        DeclarationHeader.ToJson this
+    /// <summary>
+    /// The <see cref="CallableDeclarationHeaderSchema"/> for this <see cref="CallableDeclarationHeader"/>.
+    /// </summary>
+    member private this.Schema =
+        { Kind = this.Kind
+          QualifiedName = this.QualifiedName
+          Attributes = this.Attributes
+          Modifiers = this.Modifiers
+          SourceFile = this.Source.CodePath
+          Position = this.Position
+          SymbolRange = this.SymbolRange
+          ArgumentTuple = this.ArgumentTuple
+          Signature = this.Signature
+          Documentation = this.Documentation }
 
+    member this.ToJson() = DeclarationHeader.ToJson this.Schema
+
+/// <summary>
+/// The schema for <see cref="SpecializationDeclarationHeader"/> that is used with JSON serialization.
+/// </summary>
+[<CLIMutable>]
+[<DataContract>]
+type private SpecializationDeclarationHeaderSchema = {
+    [<DataMember>] Kind : QsSpecializationKind
+    [<DataMember>] TypeArguments : QsNullable<ImmutableArray<ResolvedType>>
+    [<DataMember>] Information : CallableInformation
+    [<DataMember>] Parent : QsQualifiedName    
+    [<DataMember>] Attributes : ImmutableArray<QsDeclarationAttribute>
+    [<DataMember>] SourceFile : string
+    [<DataMember>] Position : DeclarationHeader.Offset
+    [<DataMember>] HeaderRange : DeclarationHeader.Range
+    [<DataMember>] Documentation : ImmutableArray<string>
+}
 
 /// to be removed in future releases
 type SpecializationDeclarationHeader = {
@@ -195,15 +312,20 @@ type SpecializationDeclarationHeader = {
     Information     : CallableInformation
     Parent          : QsQualifiedName    
     Attributes      : ImmutableArray<QsDeclarationAttribute>
-    SourceFile      : string
+    Source          : Source
     Position        : DeclarationHeader.Offset
     HeaderRange     : DeclarationHeader.Range
     Documentation   : ImmutableArray<string>
 }
-    with 
+    with
+
     [<JsonIgnore>]
     member this.Location = DeclarationHeader.CreateLocation (this.Position, this.HeaderRange)
-    member this.FromSource source = {this with SourceFile = source}
+
+    [<JsonIgnore; Obsolete "Replaced by Source.">]
+    member this.SourceFile = Source.assemblyOrCode this.Source
+
+    member this.FromSource source = {this with Source = source}
 
     static member New (specialization : QsSpecialization) = {
         Kind            = specialization.Kind
@@ -211,16 +333,32 @@ type SpecializationDeclarationHeader = {
         Information     = specialization.Signature.Information
         Parent          = specialization.Parent 
         Attributes      = specialization.Attributes
-        SourceFile      = specialization.SourceFile
+        Source          = specialization.Source
         Position        = specialization.Location |> DeclarationHeader.CreateOffset
         HeaderRange     = specialization.Location |> DeclarationHeader.CreateRange
         Documentation   = specialization.Documentation
     }
 
+    /// <summary>
+    /// Creates a <see cref="SpecializationDeclarationHeader"/> from a
+    /// <see cref="SpecializationDeclarationHeaderSchema"/>.
+    /// </summary>
+    static member private OfSchema (header : SpecializationDeclarationHeaderSchema) =
+        { Kind = header.Kind
+          TypeArguments = header.TypeArguments
+          Information = header.Information
+          Parent = header.Parent
+          Attributes = header.Attributes
+          Source = { CodePath = header.SourceFile; AssemblyPath = Null }
+          Position = header.Position
+          HeaderRange = header.HeaderRange
+          Documentation = header.Documentation }
+
     static member FromJson json =
         // we need to make sure that all fields that could possibly be null after deserializing 
         // due to changes of fields over time are initialized to a proper value
-        let (success, header) = DeclarationHeader.FromJson<SpecializationDeclarationHeader> json
+        let success, schema = DeclarationHeader.FromJson<SpecializationDeclarationHeaderSchema> json
+        let header = SpecializationDeclarationHeader.OfSchema schema
         let infoIsNull = Object.ReferenceEquals(header.Information, null)
         let typeArgsAreNull = Object.ReferenceEquals(header.TypeArguments, null)
         let attributesAreNullOrDefault = Object.ReferenceEquals(header.Attributes, null) || header.Attributes.IsDefault
@@ -231,5 +369,18 @@ type SpecializationDeclarationHeader = {
             let typeArguments = if typeArgsAreNull then Null else header.TypeArguments
             false, {header with Information = information; TypeArguments = typeArguments }
 
-    member this.ToJson() : string  =
-        DeclarationHeader.ToJson this
+    /// <summary>
+    /// The <see cref="SpecializationDeclarationHeaderSchema"/> for this <see cref="SpecializationDeclarationHeader"/>.
+    /// </summary>
+    member private this.Schema =
+        { Kind = this.Kind
+          TypeArguments = this.TypeArguments
+          Information = this.Information
+          Parent = this.Parent
+          Attributes = this.Attributes
+          SourceFile = this.Source.CodePath
+          Position = this.Position
+          HeaderRange = this.HeaderRange
+          Documentation = this.Documentation }
+
+    member this.ToJson() = DeclarationHeader.ToJson this.Schema
