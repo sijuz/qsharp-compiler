@@ -45,8 +45,8 @@ type Namespace private
         isAvailableWith (fun name -> CallablesInReferences.[name]) (fun c -> c.Modifiers.Access) false &&
         isAvailableWith (fun name -> TypesInReferences.[name]) (fun t -> t.Modifiers.Access) false &&
         Parts.Values.All (fun partial ->
-            isAvailableWith (partial.TryGetCallable >> tryToOption >> Option.toList) (fun c -> (snd c).Modifiers.Access) true &&
-            isAvailableWith (partial.TryGetType >> tryToOption >> Option.toList) (fun t -> t.Modifiers.Access) true)
+            isAvailableWith (partial.TryGetCallable >> tryOption >> Option.toList) (fun c -> (snd c).Modifiers.Access) true &&
+            isAvailableWith (partial.TryGetType >> tryOption >> Option.toList) (fun t -> t.Modifiers.Access) true)
 
     /// Returns whether a declaration is accessible from the calling location, given whether the calling location is in
     /// the same assembly as the declaration, and the declaration's access modifier.
@@ -171,7 +171,7 @@ type Namespace private
         | false, _ ->
             let referenceType =
                 TypesInReferences.[attName]
-                |> Seq.filter (fun qsType -> qsType.SourceFile = source)
+                |> Seq.filter (fun qsType -> qsType.Source.AssemblyPath |> QsNullable.contains source)
                 |> Seq.tryExactlyOne
             match referenceType with
             | Some qsType ->
@@ -189,7 +189,7 @@ type Namespace private
     /// </exception>
     member internal this.TypeInSource source tName =
         match Parts.TryGetValue source with
-        | true, partial -> partial.TryGetType tName |> tryToOption |> Option.defaultWith (fun () ->
+        | true, partial -> partial.TryGetType tName |> tryOption |> Option.defaultWith (fun () ->
             SymbolNotFoundException "A type with the given name was not found in the source file." |> raise)
         | false, _ -> SymbolNotFoundException "The source file does not contain this namespace." |> raise
 
@@ -222,7 +222,7 @@ type Namespace private
     /// </exception>
     member internal this.CallableInSource source cName =
         match Parts.TryGetValue source with
-        | true, partial -> partial.TryGetCallable cName |> tryToOption |> Option.defaultWith (fun () ->
+        | true, partial -> partial.TryGetCallable cName |> tryOption |> Option.defaultWith (fun () ->
             SymbolNotFoundException "A callable with the given name was not found in the source file." |> raise)
         | false, _ -> SymbolNotFoundException "The source file does not contain this namespace." |> raise
 
@@ -279,7 +279,7 @@ type Namespace private
 
         let resolveReferenceType (typeHeader : TypeDeclarationHeader) =
             if Namespace.IsDeclarationAccessible (false, typeHeader.Modifiers.Access)
-            then Found (typeHeader.SourceFile,
+            then Found (typeHeader.Source,
                         SymbolResolution.TryFindRedirect typeHeader.Attributes,
                         typeHeader.Modifiers.Access)
             else Inaccessible
@@ -288,7 +288,7 @@ type Namespace private
             match partial.TryGetType tName with
             | true, qsType ->
                 if Namespace.IsDeclarationAccessible (true, qsType.Modifiers.Access)
-                then Found (partial.Source,
+                then Found ({ CodePath = partial.Source; AssemblyPath = Null },
                             SymbolResolution.TryFindRedirectInUnresolved checkDeprecation qsType.DefinedAttributes,
                             qsType.Modifiers.Access)
                 else Inaccessible
@@ -317,14 +317,14 @@ type Namespace private
 
         let resolveReferenceCallable (callable : CallableDeclarationHeader) =
             if Namespace.IsDeclarationAccessible (false, callable.Modifiers.Access)
-            then Found (callable.SourceFile, SymbolResolution.TryFindRedirect callable.Attributes)
+            then Found (callable.Source, SymbolResolution.TryFindRedirect callable.Attributes)
             else Inaccessible
 
         let findInPartial (partial : PartialNamespace) =
             match partial.TryGetCallable cName with
             | true, (_, callable) ->
                 if Namespace.IsDeclarationAccessible (true, callable.Modifiers.Access)
-                then Found (partial.Source,
+                then Found ({ CodePath = partial.Source; AssemblyPath = Null },
                             SymbolResolution.TryFindRedirectInUnresolved checkDeprecation callable.DefinedAttributes)
                 else Inaccessible
             | false, _ -> NotFound
@@ -495,16 +495,17 @@ type Namespace private
                                | _ -> false
                 | _ -> false
 
-            // Check if the declaration's source file is local first, then look in references.
-            match Parts.TryGetValue declSource with
-            | true, partial ->
-                let _, cDecl = partial.GetCallable cName
-                let unitReturn = cDecl.Defined.ReturnType |> unitOrInvalid (fun (t : QsType) -> t.Type)
-                unitReturn, cDecl.Defined.TypeParameters.Length
-            | false, _ ->
-                let cDecl = CallablesInReferences.[cName] |> Seq.filter (fun c -> c.SourceFile = source) |> Seq.exactlyOne
+            if QsNullable.isValue declSource.AssemblyPath then
+                let cDecl =
+                    CallablesInReferences.[cName]
+                    |> Seq.filter (fun c -> c.Source.AssemblyPath |> QsNullable.contains source)
+                    |> Seq.exactlyOne
                 let unitReturn = cDecl.Signature.ReturnType |> unitOrInvalid (fun (t : ResolvedType) -> t.Resolution)
                 unitReturn, cDecl.Signature.TypeParameters.Length
+            else
+                let _, cDecl = Parts.[declSource.CodePath].GetCallable cName
+                let unitReturn = cDecl.Defined.ReturnType |> unitOrInvalid (fun (t : QsType) -> t.Type)
+                unitReturn, cDecl.Defined.TypeParameters.Length
 
         match Parts.TryGetValue source with
         | true, partial ->
