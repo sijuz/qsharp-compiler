@@ -12,6 +12,7 @@ open Microsoft.Quantum.QsCompiler.SyntaxTree
 open Microsoft.Quantum.QsCompiler.Transformations
 open Microsoft.Quantum.QsCompiler.Transformations.Core
 open Microsoft.Quantum.QsCompiler.Transformations.SearchAndReplace
+open Microsoft.Quantum.QsCompiler.Utils
 open System.Collections.Generic
 open System.Collections.Immutable
 open System.Linq
@@ -63,7 +64,7 @@ let private patternDiagnostic context pattern =
     let error code args (range : _ QsNullable) =
         if patternCapability context.IsInOperation pattern |> context.Capability.Implies
         then None
-        else QsCompilerDiagnostic.Error (code, args) (range.ValueOr Range.Zero) |> Some
+        else range.ValueOr Range.Zero |> QsCompilerDiagnostic.Error (code, args) |> Some
     let unsupported =
         if context.Capability = BasicMeasurementFeedback
         then ErrorCode.ResultComparisonNotInOperationIf
@@ -214,30 +215,60 @@ let private globalReferences scope =
     transformation.Statements.OnScope scope |> ignore
     references
 
-/// Returns a diagnostic for a reference to a global callable with the given name based on its capability attribute and
+/// Returns diagnostic reasons for why a global callable reference is not supported.
+let private referenceReasons context
+                             (name : QsQualifiedName)
+                             (range : _ QsNullable)
+                             (header : SpecializationDeclarationHeader, impl) =
+    let reason (header : SpecializationDeclarationHeader) diagnostic =
+        match diagnostic.Diagnostic with
+        | Error ErrorCode.UnsupportedResultComparison -> Some WarningCode.UnsupportedResultComparison
+        | Error ErrorCode.ResultComparisonNotInOperationIf -> Some WarningCode.ResultComparisonNotInOperationIf
+        | Error ErrorCode.ReturnInResultConditionedBlock -> Some WarningCode.ReturnInResultConditionedBlock
+        | Error ErrorCode.SetInResultConditionedBlock -> Some WarningCode.SetInResultConditionedBlock
+        | Error ErrorCode.UnsupportedCapability -> Some WarningCode.UnsupportedCapability
+        | _ -> None
+        |> Option.map (fun code ->
+            let args =
+                Seq.append
+                    [ name.Name
+                      header.Source.CodePath
+                      string (diagnostic.Range.Start.Line + 1)
+                      string (diagnostic.Range.Start.Column + 1) ]
+                    diagnostic.Arguments
+            range.ValueOr Range.Zero |> QsCompilerDiagnostic.Warning (code, args))
+
+    match impl with
+    | Provided (_, scope) ->
+        scopePatterns scope
+        |> Seq.map (locationOffset header.Location |> addOffset)
+        |> Seq.choose (patternDiagnostic context)
+        |> Seq.choose (reason header)
+    | _ -> Seq.empty
+
+/// Returns diagnostics for a reference to a global callable with the given name, based on its capability attribute and
 /// the context's supported runtime capabilities.
-let private referenceDiagnostic context (name, range : _ QsNullable) =
+let private referenceDiagnostics context (name : QsQualifiedName, range : _ QsNullable) =
     match context.Globals.TryGetCallable name (context.Symbols.Parent.Namespace, context.Symbols.SourceFile) with
     | Found declaration ->
         let capability = (BuiltIn.TryGetRequiredCapability declaration.Attributes).ValueOr RuntimeCapability.Base
         if context.Capability.Implies capability
-        then None
+        then Seq.empty
         else
+            let reasons =
+                context.Globals.ImportedSpecializations name
+                |> Seq.collect (referenceReasons context name range)
+
             let error = ErrorCode.UnsupportedCapability, [ name.Name; string capability; context.ProcessorArchitecture ]
-            range.ValueOr Range.Zero |> QsCompilerDiagnostic.Error error |> Some
-    | _ -> None
+            let diagnostic = range.ValueOr Range.Zero |> QsCompilerDiagnostic.Error error
+            reasons |> Seq.append (Seq.singleton diagnostic)
+    | _ -> Seq.empty
 
 /// Returns all capability diagnostics for the scope. Ranges are relative to the start of the specialization.
 let ScopeDiagnostics context scope =
-    [ globalReferences scope |> Seq.choose (referenceDiagnostic context)
+    [ globalReferences scope |> Seq.collect (referenceDiagnostics context)
       scopePatterns scope |> Seq.choose (patternDiagnostic context) ]
     |> Seq.concat
-
-/// Looks up a key in the dictionary, returning Some value if it is found and None if not.
-let private tryGetValue key (dict : IReadOnlyDictionary<_, _>) =
-    match dict.TryGetValue key with
-    | true, value -> Some value
-    | false, _ -> None
 
 /// Returns true if the callable is an operation.
 let private isOperation callable =
@@ -245,14 +276,9 @@ let private isOperation callable =
     | Operation -> true
     | _ -> false
 
-/// Returns true if the QsNullable is null.
-let private isQsNull = function
-    | Value _ -> false
-    | Null -> true
-
 /// Returns true if the callable is declared in a source file in the current compilation, instead of a referenced
 /// library.
-let private isDeclaredInSourceFile (callable : QsCallable) = callable.SourceFile.EndsWith ".qs"
+let private isDeclaredInSourceFile (callable : QsCallable) = QsNullable.isNull callable.Source.AssemblyPath
 
 /// Given whether the specialization is part of an operation, returns its required capability based on its source code,
 /// ignoring callable dependencies.
@@ -284,11 +310,11 @@ let private callableDependentCapability (callables : IImmutableDictionary<_, _>,
         |> fun items -> items.ToDictionary ((fun item -> item.Key), fun item -> callableSourceCapability item.Value)
     let sourceCycles =
         graph.GetCallCycles () |> Seq.filter (Seq.exists <| fun node ->
-            callables |> tryGetValue node.CallableName |> Option.exists isDeclaredInSourceFile)
+            callables.TryGetValue node.CallableName |> tryOption |> Option.exists isDeclaredInSourceFile)
     for cycle in sourceCycles do
         let cycleCapability =
             cycle
-            |> Seq.choose (fun node -> callables |> tryGetValue node.CallableName)
+            |> Seq.choose (fun node -> callables.TryGetValue node.CallableName |> tryOption)
             |> Seq.map callableSourceCapability
             |> joinCapabilities
         for node in cycle do
@@ -308,7 +334,7 @@ let private callableDependentCapability (callables : IImmutableDictionary<_, _>,
             |> Set.ofSeq
             |> fun names -> Set.difference names visited
         newDependencies
-        |> Seq.choose (fun name -> callables |> tryGetValue name)
+        |> Seq.choose (fun name -> callables.TryGetValue name |> tryOption)
         |> Seq.map (cachedCapability visited)
         |> joinCapabilities
 
@@ -317,7 +343,10 @@ let private callableDependentCapability (callables : IImmutableDictionary<_, _>,
         (BuiltIn.TryGetRequiredCapability callable.Attributes).ValueOrApply (fun () ->
             if isDeclaredInSourceFile callable
             then
-                [ initialCapabilities |> tryGetValue callable.FullName |> Option.defaultValue RuntimeCapability.Base
+                [ initialCapabilities.TryGetValue callable.FullName
+                  |> tryOption
+                  |> Option.defaultValue RuntimeCapability.Base
+
                   dependentCapability visited callable.FullName ]
                 |> joinCapabilities
             else RuntimeCapability.Base)
@@ -325,7 +354,7 @@ let private callableDependentCapability (callables : IImmutableDictionary<_, _>,
     // Tries to retrieve the capability of the callable from the cache first; otherwise, computes the capability and
     // saves it in the cache.
     and cachedCapability visited (callable : QsCallable) =
-        cache |> tryGetValue callable.FullName |> Option.defaultWith (fun () ->
+        cache.TryGetValue callable.FullName |> tryOption |> Option.defaultWith (fun () ->
             let capability = callableCapability visited callable
             cache.[callable.FullName] <- capability
             capability)
@@ -347,7 +376,7 @@ let InferCapabilities compilation =
     transformation.Namespaces <- {
         new NamespaceTransformation (transformation) with
             override this.OnCallableDeclaration callable =
-                let isMissingCapability = BuiltIn.TryGetRequiredCapability callable.Attributes |> isQsNull
+                let isMissingCapability = BuiltIn.TryGetRequiredCapability callable.Attributes |> QsNullable.isNull
                 if isMissingCapability && isDeclaredInSourceFile callable
                 then callableCapability callable |> toAttribute |> callable.AddAttribute
                 else callable
