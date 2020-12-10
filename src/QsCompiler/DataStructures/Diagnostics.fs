@@ -171,7 +171,9 @@ type ErrorCode =
     | ResultComparisonNotInOperationIf = 5024
     | ReturnInResultConditionedBlock = 5025
     | SetInResultConditionedBlock = 5026
-    | UnsupportedCapability = 5027
+    | UnsupportedCallableCapability = 5027
+    // TODO: RELEASE 2021-07: Remove ErrorCode.UnsupportedCapability.
+    | [<Obsolete "Renamed to UnsupportedCallableCapability.">] UnsupportedCapability = 5027
 
     | CallableRedefinition = 6001
     | CallableOverlapWithTypeConstructor = 6002
@@ -337,6 +339,12 @@ type WarningCode =
     | ConditionalEvaluationOfOperationCall = 5002
     | DeprecationWithRedirect = 5003
     | DeprecationWithoutRedirect = 5004
+    | UnsupportedResultComparison = 5023
+    | ResultComparisonNotInOperationIf = 5024
+    | ReturnInResultConditionedBlock = 5025
+    | SetInResultConditionedBlock = 5026
+    | UnsupportedCallableCapability = 5027
+
     | TypeParameterNotResolvedByArgument = 6001
     | ReturnTypeNotResolvedByArgument = 6002
     | NamespaceAleadyOpen = 6003
@@ -370,7 +378,7 @@ type WarningCode =
     | InvalidAssemblyProperties = 8101
 
 
-type InformationCode = 
+type InformationCode =
     | CommandLineArguments = 7001
     | CompilingWithSourceFiles = 7002
     | CompilingWithAssemblies = 7003
@@ -572,7 +580,7 @@ type DiagnosticItem =
             | ErrorCode.SetInResultConditionedBlock               ->
                 "The variable \"{0}\" cannot be reassigned here. " +
                 "In conditional blocks that depend on a measurement result, the target {1} only supports reassigning variables that were declared within the block."
-            | ErrorCode.UnsupportedCapability                     -> "The callable {0} requires the {1} runtime capability, which is not supported by the target {2}."
+            | ErrorCode.UnsupportedCallableCapability             -> "The callable {0} requires the {1} runtime capability, which is not supported by the target {2}."
 
             | ErrorCode.CallableRedefinition                      -> "Invalid callable declaration. A function or operation with the name \"{0}\" already exists."
             | ErrorCode.CallableOverlapWithTypeConstructor        -> "Invalid callable declaration. A type constructor with the name \"{0}\" already exists."
@@ -738,6 +746,12 @@ type DiagnosticItem =
             | WarningCode.ConditionalEvaluationOfOperationCall    -> "This expression may be short-circuited, and operation calls may not be executed."
             | WarningCode.DeprecationWithRedirect                 -> "{0} has been deprecated. Please use {1} instead."
             | WarningCode.DeprecationWithoutRedirect              -> "{0} has been deprecated."
+            | WarningCode.UnsupportedResultComparison             -> "Note {0}: {1}:{2}:{3}: " + DiagnosticItem.Message(ErrorCode.UnsupportedResultComparison, args |> Seq.skip 4)
+            | WarningCode.ResultComparisonNotInOperationIf        -> "Note {0}: {1}:{2}:{3}: " + DiagnosticItem.Message(ErrorCode.ResultComparisonNotInOperationIf, args |> Seq.skip 4)
+            | WarningCode.ReturnInResultConditionedBlock          -> "Note {0}: {1}:{2}:{3}: " + DiagnosticItem.Message(ErrorCode.ReturnInResultConditionedBlock, args |> Seq.skip 4)
+            | WarningCode.SetInResultConditionedBlock             -> "Note {0}: {1}:{2}:{3}: " + DiagnosticItem.Message(ErrorCode.SetInResultConditionedBlock, args |> Seq.skip 4)
+            | WarningCode.UnsupportedCallableCapability           -> "Note {0}: {1}:{2}:{3}: " + DiagnosticItem.Message(ErrorCode.UnsupportedCallableCapability, args |> Seq.skip 4)
+
             | WarningCode.TypeParameterNotResolvedByArgument      -> "The value of the type parameter is not determined by the argument type. It will always have to be explicitly specified by passing type arguments." 
             | WarningCode.ReturnTypeNotResolvedByArgument         -> "The return type is not fully determined by the argument type. It will always have to be explicitly specified by passing type arguments."
             | WarningCode.NamespaceAleadyOpen                     -> "The namespace is already open."
@@ -791,5 +805,3 @@ type DiagnosticItem =
             | InformationCode.CsharpGenerationGeneratedInfo       -> ""
             | _                                                   -> ""
         code |> ApplyArguments
-        
-
