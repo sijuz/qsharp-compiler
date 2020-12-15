@@ -1,4 +1,4 @@
-﻿define void @Lifted__PartialApplication__2__ctrl__wrapper(%TupleHeader* %capture-tuple, %TupleHeader* %arg-tuple, %TupleHeader* %result-tuple) {
+﻿define void @Lifted__PartialApplication__2__ctl__wrapper(%TupleHeader* %capture-tuple, %TupleHeader* %arg-tuple, %TupleHeader* %result-tuple) {
 entry:
   %0 = bitcast %TupleHeader* %capture-tuple to { %TupleHeader, %Callable* }*
   %1 = bitcast %TupleHeader* %arg-tuple to { %TupleHeader, %Array*, %TupleHeader* }*
@@ -27,8 +27,13 @@ entry:
   %20 = call %Callable* @__quantum__rt__callable_copy(%Callable* %19)
   call void @__quantum__rt__callable_make_controlled(%Callable* %20)
   call void @__quantum__rt__callable_invoke(%Callable* %20, %TupleHeader* %13, %TupleHeader* %result-tuple)
-  call void @__quantum__rt__tuple_unreference(%TupleHeader* %5)
-  call void @__quantum__rt__tuple_unreference(%TupleHeader* %13)
+  %21 = bitcast { %TupleHeader, %Qubit*, i64 }* %6 to %TupleHeader*
+  call void @__quantum__rt__tuple_unreference(%TupleHeader* %21)
+  %22 = bitcast { %TupleHeader, %Array*, %TupleHeader* }* %14 to %TupleHeader*
+  call void @__quantum__rt__tuple_unreference(%TupleHeader* %22)
+  %23 = getelementptr { %TupleHeader, %Array*, %TupleHeader* }, { %TupleHeader, %Array*, %TupleHeader* }* %14, i64 0, i32 1
+  %24 = load %Array*, %Array** %23
+  call void @__quantum__rt__array_unreference(%Array* %24)
   call void @__quantum__rt__callable_unreference(%Callable* %20)
   ret void
 }

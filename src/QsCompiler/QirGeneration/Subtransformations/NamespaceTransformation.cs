@@ -50,31 +50,16 @@ namespace Microsoft.Quantum.QsCompiler.QIR
 
         // public overrides
 
-        public override QsCallable OnCallableDeclaration(QsCallable c)
-        {
-            if (c.Kind == QsCallableKind.TypeConstructor)
-            {
-                return c;
-            }
-
-            this.context.SetCurrentCallable(c);
-            c = base.OnCallableDeclaration(c);
-            this.context.SetCurrentCallable(null);
-            return c;
-        }
-
-        public override void OnExternalImplementation()
-        {
-            this.SharedState.RegisterFunction(
-                this.context.GetCurrentSpecialization(),
-                this.context.GetCurrentCallable().ArgumentTuple);
-        }
-
         public override void OnIntrinsicImplementation()
         {
-            this.SharedState.RegisterFunction(
-                this.context.GetCurrentSpecialization(),
-                this.context.GetCurrentCallable().ArgumentTuple);
+            var currentCallable = this.context.GetCurrentCallable();
+            var currentSpec = this.context.GetCurrentSpecialization();
+            if (currentCallable.Kind.IsTypeConstructor && currentSpec.Kind.IsQsBody)
+            {
+                this.SharedState.StartFunction();
+                this.SharedState.GenerateConstructor(currentSpec, currentCallable.ArgumentTuple);
+                this.SharedState.EndFunction();
+            }
         }
 
         public override Tuple<QsArgumentTuple, QsScope> OnProvidedImplementation(QsArgumentTuple argTuple, QsScope body)
@@ -94,11 +79,14 @@ namespace Microsoft.Quantum.QsCompiler.QIR
             return spec;
         }
 
-        public override QsCustomType OnTypeDeclaration(QsCustomType t)
+        public override QsCallable OnCallableDeclaration(QsCallable c)
         {
-            // Generate the type constructor
-            this.SharedState.GenerateConstructor(t);
-            return base.OnTypeDeclaration(t);
+            this.context.SetCurrentCallable(c);
+            c = base.OnCallableDeclaration(c);
+            this.context.SetCurrentCallable(null);
+            return c;
         }
+
+        public override QsCustomType OnTypeDeclaration(QsCustomType t) => t;
     }
 }

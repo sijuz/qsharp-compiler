@@ -5,10 +5,10 @@ entry:
   br label %repeat__1
 
 repeat__1:                                        ; preds = %continue__1, %entry
-  call void @__quantum__qis__t__(%Qubit* %q)
-  call void @__quantum__qis__x__(%Qubit* %q)
-  call void @__quantum__qis__tadj__(%Qubit* %q)
-  call void @__quantum__qis__h__(%Qubit* %q)
+  call void @__quantum__qis__t__body(%Qubit* %q)
+  call void @__quantum__qis__x__body(%Qubit* %q)
+  call void @__quantum__qis__t__adj(%Qubit* %q)
+  call void @__quantum__qis__h__body(%Qubit* %q)
   br label %until__1
 
 until__1:                                         ; preds = %repeat__1
@@ -27,6 +27,7 @@ fixup__1:                                         ; preds = %until__1
 
 then0__1:                                         ; preds = %fixup__1
   %7 = call %String* @__quantum__rt__string_create(i32 19, [0 x i8] bitcast ([19 x i8] c"Too many iterations" to [0 x i8]))
+  call void @__quantum__rt__result_unreference(%Result* %1)
   call void @__quantum__rt__fail(%String* %7)
   call void @__quantum__rt__string_unreference(%String* %7)
   br label %continue__1
@@ -35,6 +36,7 @@ continue__1:                                      ; preds = %then0__1, %fixup__1
   br label %repeat__1
 
 rend__1:                                          ; preds = %until__1
+  call void @__quantum__rt__result_unreference(%Result* %1)
   %8 = load i64, i64* %n
   ret i64 %8
 }
