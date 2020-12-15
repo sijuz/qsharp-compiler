@@ -37,6 +37,34 @@ namespace Microsoft.Quantum.QsCompiler.QIR
         {
         }
 
+        // static methods
+
+        // used by the return statement transformation as well as for building constructors
+        internal static void AddReturn(GenerationContext sharedState, Value result, bool returnsVoid)
+        {
+            // If we're not inlining, compute the result, release any pending qubits, and generate a return.
+            // Otherwise, just evaluate the result and leave it on top of the stack.
+            if (sharedState.CurrentInlineLevel == 0)
+            {
+                // The return value and its inner items won't be unreferenced when exiting the scope
+                // since it will be used by the caller
+                sharedState.ScopeMgr.ExitScope(returned: result);
+
+                if (returnsVoid)
+                {
+                    sharedState.CurrentBuilder.Return();
+                }
+                else
+                {
+                    sharedState.CurrentBuilder.Return(result);
+                }
+            }
+            else
+            {
+                sharedState.ValueStack.Push(result);
+            }
+        }
+
         // private helpers
 
         /// <summary>
@@ -122,21 +150,17 @@ namespace Microsoft.Quantum.QsCompiler.QIR
                 if (init.Resolution.IsSingleQubitAllocation)
                 {
                     allocation = this.SharedState.CurrentBuilder.Call(allocateOne);
-                    this.SharedState.ScopeMgr.AddQubitValue(allocation, qubitType);
+                    this.SharedState.ScopeMgr.AddQubitAllocation(allocation);
                 }
                 else if (init.Resolution is ResolvedInitializerKind.QubitRegisterAllocation reg)
                 {
-                    this.Transformation.Expressions.OnTypedExpression(reg.Item);
-                    var countValue = this.SharedState.ValueStack.Pop();
-
+                    var countValue = this.SharedState.EvaluateSubexpression(reg.Item);
                     allocation = this.SharedState.CurrentBuilder.Call(allocateArray, countValue);
-                    this.SharedState.ScopeMgr.AddQubitValue(
-                        allocation,
-                        ResolvedType.New(QsResolvedTypeKind.NewArrayType(qubitType)));
+                    this.SharedState.ScopeMgr.AddQubitAllocation(allocation);
                 }
                 else
                 {
-                    allocation = Constant.UndefinedValueFor(this.SharedState.Types.Qubit);
+                    throw new NotImplementedException("unknown initializer in qubit allocation");
                 }
                 this.SharedState.RegisterName(variable, allocation);
             }
@@ -249,11 +273,9 @@ namespace Microsoft.Quantum.QsCompiler.QIR
             // continuation block if not.
             for (int n = 0; n < clauses.Length; n++)
             {
-                var test = clauses[n].Item1;
-
                 // Evaluate the test, which should be a Boolean at this point
-                this.Transformation.Expressions.OnTypedExpression(test);
-                var testValue = this.SharedState.ValueStack.Pop();
+                var test = clauses[n].Item1;
+                var testValue = this.SharedState.EvaluateSubexpression(test);
 
                 // The success block is always then{n}
                 var successBlock = this.SharedState.CurrentFunction.InsertBasicBlock(
@@ -299,23 +321,18 @@ namespace Microsoft.Quantum.QsCompiler.QIR
 
         public override QsStatementKind OnExpressionStatement(TypedExpression ex)
         {
-            this.Transformation.Expressions.OnTypedExpression(ex);
-            // The Value computed is now on top of the stack. We need to pop it, even though it's Unit,
-            // since Unit is represented as a null TuplePointer.
-            this.SharedState.ValueStack.Pop();
-
+            this.SharedState.EvaluateSubexpression(ex);
             return QsStatementKind.EmptyStatement;
         }
 
         public override QsStatementKind OnFailStatement(TypedExpression ex)
         {
+            var message = this.SharedState.EvaluateSubexpression(ex);
+
             // Release any resources (qubits or memory) before we fail.
-            this.SharedState.ScopeMgr.ExitScope();
-
-            this.Transformation.Expressions.OnTypedExpression(ex);
-            var message = this.SharedState.ValueStack.Pop();
-
+            this.SharedState.ScopeMgr.ExitScope(message);
             this.SharedState.CurrentBuilder.Call(this.SharedState.GetOrCreateRuntimeFunction(RuntimeLibrary.Fail), message);
+
             // Even though this terminates the block execution, we'll still wind up terminating
             // the containing Q# statement block, and thus the LLVM basic block, so we don't need
             // to tell LLVM that this is actually a terminator.
@@ -331,9 +348,9 @@ namespace Microsoft.Quantum.QsCompiler.QIR
                 throw new InvalidOperationException("current function is set to null");
             }
 
-            Value PopAndRegister(string name, bool isMutable = false)
+            Value ProcessAndRegister(TypedExpression ex, string name, bool isMutable = false)
             {
-                Value value = this.SharedState.ValueStack.Pop();
+                Value value = this.SharedState.EvaluateSubexpression(ex);
                 this.SharedState.RegisterName(name, value, isMutable);
                 return value;
             }
@@ -355,32 +372,24 @@ namespace Microsoft.Quantum.QsCompiler.QIR
             {
                 // Item2 is always the end. Either Item1 is the start and 1 is the step,
                 // or Item1 is a range expression itself, with Item1 the start and Item2 the step.
-                this.Transformation.Expressions.OnTypedExpression(rlit.Item2);
-                endValue = PopAndRegister(endName);
+                endValue = ProcessAndRegister(rlit.Item2, endName);
 
                 if (rlit.Item1.Expression is ResolvedExpression.RangeLiteral rlitInner)
                 {
-                    // Item2 is now the step
-                    this.Transformation.Expressions.OnTypedExpression(rlitInner.Item2);
-                    stepValue = PopAndRegister(stepName);
-                    // And Item1 the start
-                    this.Transformation.Expressions.OnTypedExpression(rlitInner.Item1);
-                    startValue = PopAndRegister(startName);
+                    stepValue = ProcessAndRegister(rlitInner.Item2, stepName);
+                    startValue = ProcessAndRegister(rlitInner.Item1, startName);
                 }
                 else
                 {
                     // 1 is the step
                     stepValue = this.SharedState.Context.CreateConstant(1L);
                     this.SharedState.RegisterName(stepName, stepValue);
-                    // And the original Item1 is the start
-                    this.Transformation.Expressions.OnTypedExpression(rlit.Item1);
-                    startValue = PopAndRegister(startName);
+                    startValue = ProcessAndRegister(rlit.Item1, startName);
                 }
             }
             else if (stm.IterationValues.ResolvedType.Resolution.IsRange)
             {
-                this.Transformation.Expressions.OnTypedExpression(stm.IterationValues);
-                var rangeValue = this.SharedState.ValueStack.Pop();
+                var rangeValue = this.SharedState.EvaluateSubexpression(stm.IterationValues);
                 startValue = this.SharedState.CurrentBuilder.ExtractValue(rangeValue, 0);
                 stepValue = this.SharedState.CurrentBuilder.ExtractValue(rangeValue, 1);
                 endValue = this.SharedState.CurrentBuilder.ExtractValue(rangeValue, 2);
@@ -393,8 +402,7 @@ namespace Microsoft.Quantum.QsCompiler.QIR
                 var elementType = this.SharedState.LlvmTypeFromQsharpType(arrType.Item);
                 startValue = this.SharedState.Context.CreateConstant(0L);
                 stepValue = this.SharedState.Context.CreateConstant(1L);
-                this.Transformation.Expressions.OnTypedExpression(stm.IterationValues);
-                array = (this.SharedState.ValueStack.Pop(), elementType);
+                array = (this.SharedState.EvaluateSubexpression(stm.IterationValues), elementType);
                 var arrayLength = this.SharedState.CurrentBuilder.Call(
                     this.SharedState.GetOrCreateRuntimeFunction(RuntimeLibrary.ArrayGetLength),
                     array.Value.Item1,
@@ -524,8 +532,7 @@ namespace Microsoft.Quantum.QsCompiler.QIR
             this.ProcessUnscopedBlock(repeatBlock, stm.RepeatBlock.Body, testBlock);
 
             this.SharedState.SetCurrentBlock(testBlock);
-            this.Transformation.Expressions.OnTypedExpression(stm.SuccessCondition);
-            var test = this.SharedState.ValueStack.Pop();
+            var test = this.SharedState.EvaluateSubexpression(stm.SuccessCondition);
             this.SharedState.CurrentBuilder.Branch(test, contBlock, fixupBlock);
 
             this.ProcessUnscopedBlock(fixupBlock, stm.FixupBlock.Body, repeatBlock);
@@ -540,46 +547,21 @@ namespace Microsoft.Quantum.QsCompiler.QIR
 
         public override QsStatementKind OnReturnStatement(TypedExpression ex)
         {
-            // If we're not inlining, compute the result, release any pending qubits, and generate a return.
-            // Otherwise, just evaluate the result and leave it on top of the stack.
-            if (this.SharedState.CurrentInlineLevel == 0)
-            {
-                this.Transformation.Expressions.OnTypedExpression(ex);
-                Value result = this.SharedState.ValueStack.Pop();
-
-                // Make sure not to unreference the return value
-                this.SharedState.ScopeMgr.RemovePendingValue(result);
-
-                // Release any locally-allocated qubits and dereference allocated values
-                this.SharedState.ScopeMgr.ExitScope();
-
-                if (ex.ResolvedType.Resolution.IsUnitType)
-                {
-                    this.SharedState.CurrentBuilder.Return();
-                }
-                else
-                {
-                    this.SharedState.CurrentBuilder.Return(result);
-                }
-            }
-            else
-            {
-                this.Transformation.Expressions.OnTypedExpression(ex);
-            }
-
+            Value result = this.SharedState.EvaluateSubexpression(ex);
+            AddReturn(this.SharedState, result, ex.ResolvedType.Resolution.IsUnitType);
             return QsStatementKind.EmptyStatement;
         }
 
         public override QsStatementKind OnValueUpdate(QsValueUpdate stm)
         {
-            // Given a symbol with an existing binding, update the binding to a bew value and
-            // addref the new value (if it's a ref-counted type).
-            // The old value will get released when the scope is closed or exited.
+            // Given a symbol with an existing binding, calls RemoveReference on the old value,
+            // update the binding to a new value and calls AddReference on the new value.
             void UpdateBinding(string symbol, Value newValue)
             {
-                var ptr = this.SharedState.GetNamedPointer(symbol);
+                Value ptr = this.SharedState.GetNamedPointer(symbol);
+                this.SharedState.ScopeMgr.RemoveReference(ptr);
                 this.SharedState.CurrentBuilder.Store(newValue, ptr);
-                this.SharedState.AddReference(newValue);
+                this.SharedState.ScopeMgr.AddReference(newValue);
             }
 
             // Update a tuple of items from a tuple value.
@@ -614,18 +596,15 @@ namespace Microsoft.Quantum.QsCompiler.QIR
                 }
             }
 
-            this.Transformation.Expressions.OnTypedExpression(stm.Rhs);
-            var value = this.SharedState.ValueStack.Pop();
+            var value = this.SharedState.EvaluateSubexpression(stm.Rhs);
             UpdateItem(stm.Lhs, value);
             return QsStatementKind.EmptyStatement;
         }
 
         public override QsStatementKind OnVariableDeclaration(QsBinding<TypedExpression> stm)
         {
-            this.Transformation.Expressions.OnTypedExpression(stm.Rhs);
-            var val = this.SharedState.ValueStack.Pop();
+            var val = this.SharedState.EvaluateSubexpression(stm.Rhs);
             this.BindSymbolTuple(stm.Lhs, val, stm.Rhs.ResolvedType, stm.Kind.IsImmutableBinding);
-
             return QsStatementKind.EmptyStatement;
         }
 
@@ -649,8 +628,7 @@ namespace Microsoft.Quantum.QsCompiler.QIR
             // The OpenScope is almost certainly unnecessary, but it is technically possible for the condition
             // expression to perform an allocation that needs to get cleaned up, so...
             this.SharedState.ScopeMgr.OpenScope();
-            this.Transformation.Expressions.OnTypedExpression(stm.Condition);
-            var test = this.SharedState.ValueStack.Pop();
+            var test = this.SharedState.EvaluateSubexpression(stm.Condition);
             this.SharedState.ScopeMgr.CloseScope(this.SharedState.CurrentBlock?.Terminator != null);
             this.SharedState.CurrentBuilder.Branch(test, bodyBlock, contBlock);
 
