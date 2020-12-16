@@ -71,7 +71,7 @@
       <!-- For the package ID that gets displayed in documentation, we default
            to the actual package ID if it's set, but allow overriding with
            QsharpDocsPackageId. -->
-      <_NewLine>%0d%0a</_NewLine>
+      <_NewLine>%20</_NewLine>
       <_NewLineIndent>$(_NewLine)%20%20%20%20</_NewLineIndent>
       <_QscCommandProjFlag>--proj$(_NewLineIndent)"$([System.IO.Path]::GetFullPath('$(PathCompatibleAssemblyName)'))"</_QscCommandProjFlag>
       <_QscDocsPackageId Condition="'$(PackageId)' != ''">$(PackageId)</_QscDocsPackageId>
