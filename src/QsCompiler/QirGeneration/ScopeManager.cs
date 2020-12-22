@@ -1,9 +1,10 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Quantum.QIR;
-using Microsoft.Quantum.QsCompiler.SyntaxTree;
 using Ubiquity.NET.Llvm.Instructions;
 using Ubiquity.NET.Llvm.Types;
 using Ubiquity.NET.Llvm.Values;
@@ -26,10 +27,14 @@ namespace Microsoft.Quantum.QsCompiler.QIR
     /// </summary>
     internal class ScopeManager
     {
-        // We keep the name of the release function, rather than the actual IrFunction, so that we don't
-        // generate references to functions that we wind up not actually calling (because the value gets removed).
         private readonly Stack<List<(Value, string)>> releaseStack = new Stack<List<(Value, string)>>();
         private readonly GenerationContext sharedState;
+
+        /// <summary>
+        /// Is true when there are currently no stack frames tracked.
+        /// Stack frames are added and removed by OpenScope and CloseScope respectively.
+        /// </summary>
+        public bool IsEmpty => !this.releaseStack.Any();
 
         /// <summary>
         /// Creates a new ref count scope manager.
@@ -43,102 +48,119 @@ namespace Microsoft.Quantum.QsCompiler.QIR
         // private helpers
 
         /// <summary>
-        /// Gets the name of the unreference runtime function for a given Q# type.
+        /// Gets the name of the reference runtime function for a given LLVM type.
         /// </summary>
-        /// <param name="t">The Q# type</param>
-        /// <param name="isQubit">true if the unreference function should deallocate qubits as well as
-        /// decrement the reference count</param>
+        /// <param name="t">The LLVM type</param>
         /// <returns>The name of the unreference function for this type</returns>
-        private string? GetReleaseFunctionForType(ResolvedType t, bool isQubit)
+        private string? GetReferenceFunctionForType(ITypeRef t)
         {
-            if (t.Resolution.IsArrayType)
+            if (t.IsPointer)
             {
-                if (isQubit)
+                if (t == this.sharedState.Types.Array)
                 {
-                    return RuntimeLibrary.QubitReleaseArray;
+                    return RuntimeLibrary.ArrayReference;
                 }
-                else
+                else if (t == this.sharedState.Types.Result)
                 {
-                    return RuntimeLibrary.ArrayUnreference;
+                    return RuntimeLibrary.ResultReference;
+                }
+                else if (t == this.sharedState.Types.String)
+                {
+                    return RuntimeLibrary.StringReference;
+                }
+                else if (t == this.sharedState.Types.BigInt)
+                {
+                    return RuntimeLibrary.BigintReference;
+                }
+                else if (this.sharedState.Types.IsTupleType(t))
+                {
+                    return RuntimeLibrary.TupleReference;
+                }
+                else if (t == this.sharedState.Types.Callable)
+                {
+                    return RuntimeLibrary.CallableReference;
                 }
             }
-            else if (t.Resolution.IsQubit)
-            {
-                return RuntimeLibrary.QubitRelease;
-            }
-            else if (t.Resolution.IsResult)
-            {
-                return RuntimeLibrary.ResultUnreference;
-            }
-            else if (t.Resolution.IsString)
-            {
-                return RuntimeLibrary.StringUnreference;
-            }
-            else if (t.Resolution.IsBigInt)
-            {
-                return RuntimeLibrary.BigintUnreference;
-            }
-            else if (t.Resolution.IsTupleType)
-            {
-                return RuntimeLibrary.TupleUnreference;
-            }
-            else if (t.Resolution.IsOperation || t.Resolution.IsFunction)
-            {
-                return RuntimeLibrary.CallableUnreference;
-            }
-            else
-            {
-                return null;
-            }
+            return null;
         }
 
         /// <summary>
         /// Gets the name of the unreference runtime function for a given LLVM type.
         /// </summary>
         /// <param name="t">The LLVM type</param>
-        /// <param name="isQubit">true if the unreference function should deallocate qubits as well as
-        /// decrement the reference count</param>
         /// <returns>The name of the unreference function for this type</returns>
-        private string? GetReleaseFunctionForType(ITypeRef t, bool isQubit)
+        private string? GetReleaseFunctionForType(ITypeRef t)
         {
-            if (t == this.sharedState.Types.Array)
+            if (t.IsPointer)
             {
-                if (isQubit)
-                {
-                    return RuntimeLibrary.QubitReleaseArray;
-                }
-                else
+                if (t == this.sharedState.Types.Array)
                 {
                     return RuntimeLibrary.ArrayUnreference;
                 }
+                else if (t == this.sharedState.Types.Result)
+                {
+                    return RuntimeLibrary.ResultUnreference;
+                }
+                else if (t == this.sharedState.Types.String)
+                {
+                    return RuntimeLibrary.StringUnreference;
+                }
+                else if (t == this.sharedState.Types.BigInt)
+                {
+                    return RuntimeLibrary.BigintUnreference;
+                }
+                else if (this.sharedState.Types.IsTupleType(t))
+                {
+                    return RuntimeLibrary.TupleUnreference;
+                }
+                else if (t == this.sharedState.Types.Callable)
+                {
+                    return RuntimeLibrary.CallableUnreference;
+                }
             }
-            else if (t == this.sharedState.Types.Qubit)
+            return null;
+        }
+
+        /// <summary>
+        /// Applies the given function to the given value, casting the value if necessary,
+        /// and then recurs into contained items and if getItemFunc returns not null, applies the returned function to them.
+        /// </summary>
+        private void RecursivelyModifyReferences(Value value, Value func, Func<ITypeRef, string?> getItemFunc, InstructionBuilder builder)
+        {
+            if (this.sharedState.Types.IsTupleType(value.NativeType))
             {
-                return RuntimeLibrary.QubitRelease;
-            }
-            else if (t == this.sharedState.Types.Result)
-            {
-                return RuntimeLibrary.ResultUnreference;
-            }
-            else if (t == this.sharedState.Types.String)
-            {
-                return RuntimeLibrary.StringUnreference;
-            }
-            else if (t == this.sharedState.Types.BigInt)
-            {
-                return RuntimeLibrary.BigintUnreference;
-            }
-            else if (t == this.sharedState.Types.Tuple || this.sharedState.Types.IsTupleType(t))
-            {
-                return RuntimeLibrary.TupleUnreference;
-            }
-            else if (t == this.sharedState.Types.Callable)
-            {
-                return RuntimeLibrary.CallableUnreference;
+                var untypedTuple = builder.BitCast(value, this.sharedState.Types.Tuple);
+                builder.Call(func, untypedTuple);
+
+                // for tuples we also unreference all inner tuples
+                var elementType = ((IPointerType)value.NativeType).ElementType;
+                var itemTypes = ((IStructType)elementType).Members;
+                for (var i = 0; i < itemTypes.Count; ++i)
+                {
+                    var itemFuncName = getItemFunc(itemTypes[i]);
+                    if (itemFuncName != null)
+                    {
+                        var ptr = this.sharedState.GetTupleElementPointer(elementType, value, i, builder);
+                        var item = builder.Load(itemTypes[i], ptr);
+                        this.RecursivelyModifyReferences(item, this.sharedState.GetOrCreateRuntimeFunction(itemFuncName), getItemFunc, builder);
+                    }
+                }
             }
             else
             {
-                return null;
+                builder.Call(func, value);
+
+                if (value.NativeType == this.sharedState.Types.Array)
+                {
+                    // TODO:
+                    // We need to generate and pass in a release function that is to be applied to each item
+                }
+                else if (value.NativeType == this.sharedState.Types.Callable)
+                {
+                    // TODO
+                    // Releasing any captured callable (first item in the capture tuple for a partial application)
+                    // could in principle be done by the runtime, so not sure if we should do something here
+                }
             }
         }
 
@@ -147,34 +169,16 @@ namespace Microsoft.Quantum.QsCompiler.QIR
         /// </summary>
         /// <param name="pendingReleases">The list of pending releases that defines a scope</param>
         /// <param name="builder">The InstructionBuilder where the release calls should be generated</param>
-        private void GenerateReleasesForLevel(List<(Value, string)> pendingReleases, InstructionBuilder builder)
+        private void GenerateReleasesForLevel(IEnumerable<(Value, string)> pendingReleases, InstructionBuilder builder)
         {
             foreach ((Value valueToRelease, string releaseFunc) in pendingReleases)
             {
                 IrFunction func = this.sharedState.GetOrCreateRuntimeFunction(releaseFunc);
-                // special case for tuples
-                if (releaseFunc == RuntimeLibrary.TupleUnreference)
-                {
-                    var untypedTuple = builder.BitCast(valueToRelease, this.sharedState.Types.Tuple);
-                    builder.Call(func, untypedTuple);
-                }
-                else
-                {
-                    builder.Call(func, valueToRelease);
-                }
+                this.RecursivelyModifyReferences(valueToRelease, func, this.GetReleaseFunctionForType, builder);
             }
         }
 
         // public methods
-
-        /// <summary>
-        /// Resets the manager by emptying the scope stack.
-        /// </summary>
-        public void Reset()
-        {
-            this.releaseStack.Clear();
-            this.releaseStack.Push(new List<(Value, string)>());
-        }
 
         /// <summary>
         /// Opens a new ref counting scope.
@@ -186,89 +190,94 @@ namespace Microsoft.Quantum.QsCompiler.QIR
         }
 
         /// <summary>
-        /// Adds a value to the current topmost scope.
+        /// Adds a value to the current topmost scope,
+        /// and makes sure that the value and all its items are unreferenced when the scope is closed or exited.
         /// </summary>
-        /// <param name="valueToRelease">The Value to be released</param>
-        /// <param name="valueType">
-        /// Optional parameter with the Q# type of the value;
-        /// If no parameter is given, then the release function will be determined
-        /// based on the NativeType of the value to release.
-        /// </param>
-        public void AddValue(Value valueToRelease, ResolvedType? valueType = null)
+        /// <param name="value">Value that is created within the current scope</param>
+        public void AddValue(Value value)
         {
-            var releaser = valueType == null
-                ? this.GetReleaseFunctionForType(valueToRelease.NativeType, false)
-                : this.GetReleaseFunctionForType(valueType, false);
+            var releaser = this.GetReleaseFunctionForType(value.NativeType);
             if (releaser != null)
             {
-                this.releaseStack.Peek().Add((valueToRelease, releaser));
+                this.releaseStack.Peek().Add((value, releaser));
             }
         }
 
         /// <summary>
-        /// Adds a qubit value to the current topmost scope.
+        /// Adds a value constructed as part of a qubit allocation to the current topmost scope.
+        /// Makes sure that all allocated qubits are released when the scope is closed or exited
+        /// and that the value and all its items are unreferenced.
         /// </summary>
-        /// <param name="valueToRelease">The Value to be released</param>
-        /// <param name="valueType">The Q# type of the value, which should be either a Qubit
+        /// <param name="value">The value to be released</param>
         /// or an array of Qubits.</param>
-        public void AddQubitValue(Value valueToRelease, ResolvedType valueType)
+        public void AddQubitAllocation(Value value)
         {
-            var releaser = this.GetReleaseFunctionForType(valueType, true);
-            if (releaser != null)
+            var releaser =
+                value.NativeType == this.sharedState.Types.Array ? RuntimeLibrary.QubitReleaseArray :
+                value.NativeType == this.sharedState.Types.Qubit ? RuntimeLibrary.QubitRelease :
+                throw new ArgumentException("AddQubitValue expects an argument of type Qubit or Qubit[]");
+            this.releaseStack.Peek().Add((value, releaser)); // this takes care purely of the deallocation
+            this.AddValue(value); // this takes care of properly unreferencing the created array if necessary
+        }
+
+        /// <summary>
+        /// Adds a call to a runtime library function to increase the reference count
+        /// for the given value if necessary. The call is generated in the current block.
+        /// </summary>
+        /// <param name="value">The value which is referenced</param>
+        public void AddReference(Value value)
+        {
+            var referenceFunc = this.GetReferenceFunctionForType(value.NativeType);
+            if (referenceFunc != null)
             {
-                this.releaseStack.Peek().Add((valueToRelease, releaser));
+                IrFunction func = this.sharedState.GetOrCreateRuntimeFunction(referenceFunc);
+                this.RecursivelyModifyReferences(value, func, this.GetReferenceFunctionForType, this.sharedState.CurrentBuilder);
             }
         }
 
         /// <summary>
-        /// Removes a pending Value from those to be unreferenced.
-        /// This is necessary, for example, for values that are returned to the caller.
+        /// Given a pointer loads the current value at that location and queues a suitable function
+        /// to unreference that value upon closing or exciting the scope.
         /// </summary>
-        /// <param name="valueToRemove">The Value to remove</param>
-        public void RemovePendingValue(Value valueToRemove)
+        /// <param name="pointer">Pointer to the value that will no longer be accessible via that pointer</param>
+        public void RemoveReference(Value pointer)
         {
-            foreach (var level in this.releaseStack)
+            var type = ((IPointerType)pointer.NativeType).ElementType;
+            var releaser = this.GetReleaseFunctionForType(type);
+            if (releaser != null)
             {
-                level.RemoveAll(item => item.Item1 == valueToRemove);
+                var value = this.sharedState.CurrentBuilder.Load(type, pointer);
+                this.releaseStack.Peek().Add((value, releaser));
             }
         }
 
         /// <summary>
         /// Closes the current scope by emitting any pending releases and popping the scope off of the stack.
-        /// Note that if the current basic block is already terminated, presumably by a return,
-        /// the pending releases are not generated.
-        /// The releases are generated in the current block.
+        /// If the current basic block is already terminated, presumably by a return, the pending releases are not generated.
+        /// The releases are generated in the current block if no builder is specified, and otherwise the given builder is used.
         /// </summary>
-        public void CloseScope(bool isTerminated)
+        public void CloseScope(bool isTerminated, InstructionBuilder? builder = null)
         {
             var releases = this.releaseStack.Pop();
             // If the current block is already terminated, presumably be a return, don't generate releases
             if (!isTerminated)
             {
-                this.GenerateReleasesForLevel(releases, this.sharedState.CurrentBuilder);
+                this.GenerateReleasesForLevel(releases, builder ?? this.sharedState.CurrentBuilder);
             }
         }
 
         /// <summary>
-        /// Closes the current scope by emitting any pending releases and popping the scope off of the stack.
-        /// The releases are generated unconditionally.
-        /// </summary>
-        /// <param name="builder">The InstructionBuilder where the release calls should be generated</param>
-        public void ForceCloseScope(InstructionBuilder builder)
-        {
-            var releases = this.releaseStack.Pop();
-            this.GenerateReleasesForLevel(releases, builder);
-        }
-
-        /// <summary>
         /// Exits the current scope stack by generating all of the pending releases for all open scopes.
+        /// Skips any release function for the returned value.
         /// The releases are generated in the current block.
+        /// Exiting the current scope does *not* close the scope.
         /// </summary>
-        public void ExitScope()
+        /// <param name="returned">The value that is returned and expected to remain valid after exiting.</param>
+        public void ExitScope(Value returned)
         {
-            foreach (var level in this.releaseStack)
+            foreach (var releases in this.releaseStack)
             {
-                this.GenerateReleasesForLevel(level, this.sharedState.CurrentBuilder);
+                this.GenerateReleasesForLevel(releases.Where(value => value.Item1 != returned), this.sharedState.CurrentBuilder);
             }
         }
     }
