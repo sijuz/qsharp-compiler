@@ -1,31 +1,35 @@
 define i64 @Microsoft__Quantum__Testing__QIR__TestAccessors__body() {
 entry:
-  %0 = call %TupleHeader* @__quantum__rt__tuple_create(i64 ptrtoint ({ %TupleHeader, i2, i64 }* getelementptr ({ %TupleHeader, i2, i64 }, { %TupleHeader, i2, i64 }* null, i32 1) to i64))
-  %1 = bitcast %TupleHeader* %0 to { %TupleHeader, i2, i64 }*
-  %2 = load i2, i2* @PauliX
-  %3 = getelementptr { %TupleHeader, i2, i64 }, { %TupleHeader, i2, i64 }* %1, i64 0, i32 1
-  store i2 %2, i2* %3
-  %4 = getelementptr { %TupleHeader, i2, i64 }, { %TupleHeader, i2, i64 }* %1, i64 0, i32 2
+  %0 = load i2, i2* @PauliX
+  %1 = call %Tuple* @__quantum__rt__tuple_create(i64 ptrtoint ({ i2, i64 }* getelementptr ({ i2, i64 }, { i2, i64 }* null, i32 1) to i64))
+  %2 = bitcast %Tuple* %1 to { i2, i64 }*
+  %3 = getelementptr { i2, i64 }, { i2, i64 }* %2, i64 0, i32 0
+  %4 = getelementptr { i2, i64 }, { i2, i64 }* %2, i64 0, i32 1
+  store i2 %0, i2* %3
   store i64 1, i64* %4
-  %x = call { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__TestType__body({ %TupleHeader, i2, i64 }* %1, double 2.000000e+00)
-  %5 = getelementptr { %TupleHeader, { %TupleHeader, i2, i64 }*, double }, { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* %x, i64 0, i32 1
-  %6 = load { %TupleHeader, i2, i64 }*, { %TupleHeader, i2, i64 }** %5
-  %7 = getelementptr { %TupleHeader, i2, i64 }, { %TupleHeader, i2, i64 }* %6, i64 0, i32 2
+  %x = call { { i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__TestType__body({ i2, i64 }* %2, double 2.000000e+00)
+  %5 = getelementptr { { i2, i64 }*, double }, { { i2, i64 }*, double }* %x, i64 0, i32 0
+  %6 = load { i2, i64 }*, { i2, i64 }** %5
+  %7 = getelementptr { i2, i64 }, { i2, i64 }* %6, i64 0, i32 1
   %y = load i64, i64* %7
-  %8 = bitcast { %TupleHeader, i2, i64 }* %1 to %TupleHeader*
-  call void @__quantum__rt__tuple_unreference(%TupleHeader* %8)
+  %8 = bitcast { i2, i64 }* %2 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %8)
+  %9 = getelementptr { { i2, i64 }*, double }, { { i2, i64 }*, double }* %x, i64 0, i32 0
+  %10 = load { i2, i64 }*, { i2, i64 }** %9
+  %11 = bitcast { i2, i64 }* %10 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %11)
+  %12 = bitcast { { i2, i64 }*, double }* %x to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %12)
   ret i64 %y
 }
 
-define { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__TestType__body({ %TupleHeader, i2, i64 }* %arg0, double %arg1) {
+define { { i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__TestType__body({ i2, i64 }* %arg__1, double %D) {
 entry:
-  %0 = call %TupleHeader* @__quantum__rt__tuple_create(i64 ptrtoint ({ %TupleHeader, { %TupleHeader, i2, i64 }*, double }* getelementptr ({ %TupleHeader, { %TupleHeader, i2, i64 }*, double }, { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* null, i32 1) to i64))
-  %1 = bitcast %TupleHeader* %0 to { %TupleHeader, { %TupleHeader, i2, i64 }*, double }*
-  %2 = getelementptr { %TupleHeader, { %TupleHeader, i2, i64 }*, double }, { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* %1, i64 0, i32 1
-  store { %TupleHeader, i2, i64 }* %arg0, { %TupleHeader, i2, i64 }** %2
-  %3 = bitcast { %TupleHeader, i2, i64 }* %arg0 to %TupleHeader*
-  call void @__quantum__rt__tuple_reference(%TupleHeader* %3)
-  %4 = getelementptr { %TupleHeader, { %TupleHeader, i2, i64 }*, double }, { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* %1, i64 0, i32 2
-  store double %arg1, double* %4
-  ret { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* %1
+  %0 = call %Tuple* @__quantum__rt__tuple_create(i64 ptrtoint ({ { i2, i64 }*, double }* getelementptr ({ { i2, i64 }*, double }, { { i2, i64 }*, double }* null, i32 1) to i64))
+  %1 = bitcast %Tuple* %0 to { { i2, i64 }*, double }*
+  %2 = getelementptr { { i2, i64 }*, double }, { { i2, i64 }*, double }* %1, i64 0, i32 0
+  store { i2, i64 }* %arg__1, { i2, i64 }** %2
+  %3 = getelementptr { { i2, i64 }*, double }, { { i2, i64 }*, double }* %1, i64 0, i32 1
+  store double %D, double* %3
+  ret { { i2, i64 }*, double }* %1
 }

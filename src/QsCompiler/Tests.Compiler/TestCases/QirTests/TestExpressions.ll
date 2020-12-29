@@ -4,10 +4,10 @@ entry:
   %2 = call i64 @Microsoft__Quantum__Testing__QIR__ReturnFunctionCall__body()
   %3 = call double @Microsoft__Quantum__Testing__QIR__ReturnOperationCall__body()
   %4 = call %Callable* @Microsoft__Quantum__Testing__QIR__ReturnPartialApplication__body()
-  %5 = call { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__ReturnUnwrapApplication__body()
+  %5 = call { { i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__ReturnUnwrapApplication__body()
   %6 = call %Callable* @Microsoft__Quantum__Testing__QIR__ReturnAdjointApplication__body()
   %7 = call %Callable* @Microsoft__Quantum__Testing__QIR__ReturnControlledApplication__body()
-  %8 = call { %TupleHeader, i64, { %TupleHeader, %Callable*, %String* }* }* @Microsoft__Quantum__Testing__QIR__ReturnTuple__body()
+  %8 = call { i64, { %Callable*, %String* }* }* @Microsoft__Quantum__Testing__QIR__ReturnTuple__body()
   %9 = call %String* @Microsoft__Quantum__Testing__QIR__ReturnArrayItem__body()
   %10 = call i2 @Microsoft__Quantum__Testing__QIR__ReturnNamedItem__body()
   %11 = call %Array* @Microsoft__Quantum__Testing__QIR__ReturnArray__body()
@@ -15,7 +15,7 @@ entry:
   %13 = call %String* @Microsoft__Quantum__Testing__QIR__ReturnString__body()
   %14 = call %Range @Microsoft__Quantum__Testing__QIR__ReturnRange__body()
   %15 = call %Array* @Microsoft__Quantum__Testing__QIR__ReturnCopyAndUpdateArray__body()
-  %16 = call { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__ReturnCopyAndUpdateUdt__body()
+  %16 = call { { i2, i64 }*, double }* @Microsoft__Quantum__Testing__QIR__ReturnCopyAndUpdateUdt__body()
   %17 = call %BigInt* @Microsoft__Quantum__Testing__QIR__ReturnConditional__body(i1 false)
   %18 = call i1 @Microsoft__Quantum__Testing__QIR__ReturnEquality__body(i64 4, i64 5)
   %19 = call i1 @Microsoft__Quantum__Testing__QIR__ReturnInequality__body(i64 5, i64 6)
@@ -51,17 +51,37 @@ entry:
   call void @__quantum__rt__callable_unreference(%Callable* %0)
   call void @__quantum__rt__callable_unreference(%Callable* %1)
   call void @__quantum__rt__callable_unreference(%Callable* %4)
-  %48 = bitcast { %TupleHeader, { %TupleHeader, i2, i64 }*, double }* %5 to %TupleHeader*
-  call void @__quantum__rt__tuple_unreference(%TupleHeader* %48)
+  %48 = getelementptr { { i2, i64 }*, double }, { { i2, i64 }*, double }* %5, i64 0, i32 0
+  %49 = load { i2, i64 }*, { i2, i64 }** %48
+  %50 = bitcast { i2, i64 }* %49 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %50)
+  %51 = bitcast { { i2, i64 }*, double }* %5 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %51)
   call void @__quantum__rt__callable_unreference(%Callable* %6)
   call void @__quantum__rt__callable_unreference(%Callable* %7)
-  %49 = bitcast { %TupleHeader, i64, { %TupleHeader, %Callable*, %String* }* }* %8 to %TupleHeader*
-  call void @__quantum__rt__tuple_unreference(%TupleHeader* %49)
+  %52 = getelementptr { i64, { %Callable*, %String* }* }, { i64, { %Callable*, %String* }* }* %8, i64 0, i32 1
+  %53 = load { %Callable*, %String* }*, { %Callable*, %String* }** %52
+  %54 = getelementptr { %Callable*, %String* }, { %Callable*, %String* }* %53, i64 0, i32 0
+  %55 = load %Callable*, %Callable** %54
+  call void @__quantum__rt__callable_unreference(%Callable* %55)
+  %56 = getelementptr { %Callable*, %String* }, { %Callable*, %String* }* %53, i64 0, i32 1
+  %57 = load %String*, %String** %56
+  call void @__quantum__rt__string_unreference(%String* %57)
+  %58 = bitcast { %Callable*, %String* }* %53 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %58)
+  %59 = bitcast { i64, { %Callable*, %String* }* }* %8 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %59)
   call void @__quantum__rt__string_unreference(%String* %9)
   call void @__quantum__rt__array_unreference(%Array* %11)
   call void @__quantum__rt__array_unreference(%Array* %12)
   call void @__quantum__rt__string_unreference(%String* %13)
   call void @__quantum__rt__array_unreference(%Array* %15)
+  %60 = getelementptr { { i2, i64 }*, double }, { { i2, i64 }*, double }* %16, i64 0, i32 0
+  %61 = load { i2, i64 }*, { i2, i64 }** %60
+  %62 = bitcast { i2, i64 }* %61 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %62)
+  %63 = bitcast { { i2, i64 }*, double }* %16 to %Tuple*
+  call void @__quantum__rt__tuple_unreference(%Tuple* %63)
   call void @__quantum__rt__bigint_unreference(%BigInt* %17)
   call void @__quantum__rt__bigint_unreference(%BigInt* %32)
   call void @__quantum__rt__result_unreference(%Result* %35)
