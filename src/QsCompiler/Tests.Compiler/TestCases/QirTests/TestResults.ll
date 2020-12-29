@@ -13,9 +13,11 @@ test1__1:                                         ; preds = %entry
   br i1 %3, label %then1__1, label %continue__1
 
 then1__1:                                         ; preds = %test1__1
+  call void @__quantum__rt__result_unreference(%Result* %2)
   ret %Result* %b
 
 continue__1:                                      ; preds = %test1__1
   %4 = load %Result*, %Result** @ResultZero
+  call void @__quantum__rt__result_unreference(%Result* %2)
   ret %Result* %4
 }
