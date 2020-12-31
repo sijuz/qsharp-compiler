@@ -95,8 +95,7 @@ namespace Microsoft.Quantum.QsCompiler.QIR
 
         public override QsResolvedTypeKind OnTupleType(ImmutableArray<ResolvedType> ts)
         {
-            var elementTypes = ts.Select(this.SharedState.LlvmTypeFromQsharpType);
-            this.SharedState.BuiltType = this.SharedState.Types.CreateConcreteTupleType(elementTypes).CreatePointerType();
+            this.SharedState.BuiltType = this.SharedState.CreateConcreteTupleType(ts).CreatePointerType();
             return QsResolvedTypeKind.InvalidType;
         }
 
@@ -111,15 +110,16 @@ namespace Microsoft.Quantum.QsCompiler.QIR
 
         public override QsResolvedTypeKind OnUserDefinedType(UserDefinedType udt)
         {
-            // User-defined types are represented by their underlying types.
+            // User-defined types are represented by a tuple of their items.
             if (this.SharedState.TryGetCustomType(udt.GetFullName(), out QsCustomType? udtDefinition))
             {
-                this.OnType(udtDefinition.Type);
+                this.SharedState.BuiltType = udtDefinition.Type.Resolution.IsUnitType
+                    ? this.SharedState.Types.Tuple
+                    : this.SharedState.LlvmStructTypeFromQsharpType(udtDefinition.Type).CreatePointerType();
             }
             else
             {
-                // This should never happen.
-                this.SharedState.BuiltType = this.SharedState.Context.TokenType;
+                throw new InvalidOperationException("unknown user defined type");
             }
             return QsResolvedTypeKind.InvalidType;
         }
