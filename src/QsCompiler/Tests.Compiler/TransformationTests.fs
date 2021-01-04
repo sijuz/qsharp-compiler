@@ -197,11 +197,10 @@ let ``generation of open statements`` () =
         }"
 
     let ns = compilation.Namespaces |> Seq.head
-
     let source =
         match ns.Elements.Single() with
-        | QsCallable callable -> callable.SourceFile
-        | QsCustomType t -> t.SourceFile
+        | QsCallable callable -> Source.assemblyOrCode callable.Source
+        | QsCustomType t -> Source.assemblyOrCode t.Source
 
     let openExplicit =
         let directive name =
