@@ -50,12 +50,28 @@ let private qirTest target name =
 
 [<Fact>]
 let ``QIR using`` () =
-    qirTest false "TestUsing"
+    qirMultiTest true "TestUsing" ["TestUsing1"; "TestUsing2"]
+
+[<Fact>]
+let ``QIR inlined call`` () =
+    qirTest true "TestInline"
+
+[<Fact>]
+let ``QIR access counts`` () =
+    qirTest false "TestAccessCounts"
     
 [<Fact>]
 let ``QIR array loop`` () =
     qirTest false "TestArrayLoop"
-    
+
+[<Fact>]
+let ``QIR nested for loop`` () =
+    qirTest false "TestForLoop"
+
+[<Fact>]
+let ``QIR caching of values`` () =
+    qirTest true "TestCaching"
+
 [<Fact>]
 let ``QIR array update`` () =
     qirTest false "TestArrayUpdate"
@@ -83,10 +99,18 @@ let ``QIR UDT update`` () =
 [<Fact>]
 let ``QIR UDT argument`` () =
     qirTest false "TestUdtArgument"
+
+[<Fact>]
+let ``QIR callable values`` () =
+    qirMultiTest false "TestLocalCallables" ["TestLocalCallables1"; "TestLocalCallables2"]
     
 [<Fact>]
 let ``QIR operation argument`` () =
     qirTest true "TestOpArgument"
+
+[<Fact>]
+let ``QIR operation call`` () =
+    qirMultiTest false "TestOpCall" ["TestOpCall1"; "TestOpCall2"]
 
 [<Fact>]
 let ``QIR while loop`` () =
@@ -125,6 +149,14 @@ let ``QIR partial applications`` () =
     qirMultiTest true "TestPartials" ["TestPartials1"; "TestPartials2"; "TestPartials3"; "TestPartials4"]
 
 [<Fact>]
+let ``QIR declarations`` () =
+    qirMultiTest false "TestDeclarations" ["TestDeclarations1"; "TestDeclarations2"; "TestDeclarations3"; "TestDeclarations4"; "TestDeclarations5"; "TestDeclarations6"]
+
+[<Fact>]
+let ``QIR functors`` () =
+    qirTest true "TestFunctors"
+
+[<Fact>]
 let ``QIR paulis`` () =
     qirTest false "TestPaulis"
 
@@ -143,6 +175,10 @@ let ``QIR strings`` () =
 [<Fact>]
 let ``QIR scoping`` () =
     qirTest false "TestScoping"
+
+[<Fact>]
+let ``QIR conditionals`` () =
+    qirTest false "TestConditional"
 
 [<Fact>]
 let ``QIR expressions`` () =
