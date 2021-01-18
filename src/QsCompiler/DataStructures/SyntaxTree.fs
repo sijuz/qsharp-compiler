@@ -6,7 +6,6 @@ namespace Microsoft.Quantum.QsCompiler.SyntaxTree
 open System
 open System.Collections.Immutable
 open System.Linq
-open System.Runtime.InteropServices
 open Microsoft.Quantum.QsCompiler.DataTypes
 open Microsoft.Quantum.QsCompiler.SyntaxTokens
 
@@ -683,46 +682,6 @@ and QsStatement =
     }
 
 
-/// The source files of a syntax tree node.
-type Source =
-    {
-        /// The path to the original source code file.
-        CodeFile: string
-        /// The path to the assembly file if the node was loaded from a reference.
-        AssemblyFile: string QsNullable
-    }
-
-/// The module for source files.
-module Source =
-    /// The assembly file path for this source if one exists, otherwise the code file path.
-    [<CompiledName "AssemblyOrCodeFile">]
-    let assemblyOrCodeFile source =
-        source.AssemblyFile.ValueOr source.CodeFile
-
-    /// Whether the source is from a referenced assembly.
-    [<CompiledName "IsReference">]
-    let isReference (source: Source) = QsNullable.isValue source.AssemblyFile
-
-// C# API for Source.
-type Source with
-    /// The assembly file path for this source if one exists, otherwise the code file path.
-    member source.AssemblyOrCodeFile = Source.assemblyOrCodeFile source
-
-    /// Whether the source is from a referenced assembly.
-    member source.IsReference = Source.isReference source
-
-    /// <summary>
-    /// Returns a copy of this source with the given <paramref name="codeFile"/> or <paramref name="assemblyFile"/> if
-    /// provided.
-    /// </summary>
-    member source.With([<Optional; DefaultParameterValue null>] ?codeFile,
-                       [<Optional; DefaultParameterValue null>] ?assemblyFile) =
-        { source with
-            CodeFile = codeFile |> Option.defaultValue source.CodeFile
-            AssemblyFile = assemblyFile |> QsNullable<_>.FromOption |> QsNullable.orElse source.AssemblyFile
-        }
-
-
 /// used to represent the names of declared type parameters or the name of the declared argument items of a callable
 type QsLocalSymbol =
     | ValidName of string
@@ -784,9 +743,8 @@ type QsSpecialization =
         Parent: QsQualifiedName
         /// contains all attributes associated with the specialization
         Attributes: ImmutableArray<QsDeclarationAttribute>
-        /// The source where the specialization is declared in (not necessarily the same as the one of the callable it
-        /// extends).
-        Source: Source
+        /// identifier for the file the specialization is declared in (not necessarily the same as the one of the callable it extends)
+        SourceFile: string
         /// Contains the location information for the declared specialization.
         /// The position offset represents the position in the source file where the specialization is declared,
         /// and the range contains the range of the corresponding specialization header.
@@ -814,11 +772,7 @@ type QsSpecialization =
     member this.WithParent(getName: Func<_, _>) =
         { this with Parent = getName.Invoke(this.Parent) }
 
-    member this.WithSource source = { this with Source = source }
-
-    // TODO: RELEASE 2021-07: Remove QsSpecialization.SourceFile.
-    [<Obsolete "Replaced by Source.">]
-    member this.SourceFile = Source.assemblyOrCodeFile this.Source
+    member this.WithSourceFile file = { this with SourceFile = file }
 
 
 /// describes a Q# function, operation, or type constructor
@@ -832,8 +786,8 @@ type QsCallable =
         Attributes: ImmutableArray<QsDeclarationAttribute>
         /// Represents the Q# keywords attached to the declaration that modify its behavior.
         Modifiers: Modifiers
-        /// The source where the callable is declared in.
-        Source: Source
+        /// identifier for the file the callable is declared in
+        SourceFile: string
         /// Contains the location information for the declared callable.
         /// The position offset represents the position in the source file where the callable is declared,
         /// and the range contains the range occupied by its name relative to that position.
@@ -867,11 +821,7 @@ type QsCallable =
     member this.WithFullName(getName: Func<_, _>) =
         { this with FullName = getName.Invoke(this.FullName) }
 
-    member this.WithSource source = { this with Source = source }
-
-    // TODO: RELEASE 2021-07: Remove QsCallable.SourceFile.
-    [<Obsolete "Replaced by Source.">]
-    member this.SourceFile = Source.assemblyOrCodeFile this.Source
+    member this.WithSourceFile file = { this with SourceFile = file }
 
 
 /// used to represent the named and anonymous items in a user defined type
@@ -891,8 +841,8 @@ type QsCustomType =
         Attributes: ImmutableArray<QsDeclarationAttribute>
         /// Represents the Q# keywords attached to the declaration that modify its behavior.
         Modifiers: Modifiers
-        /// The source where the type is declared in.
-        Source: Source
+        /// identifier for the file the type is declared in
+        SourceFile: string
         /// Contains the location information for the declared type.
         /// The position offset represents the position in the source file where the type is declared,
         /// and the range contains the range occupied by the type name relative to that position.
@@ -919,11 +869,7 @@ type QsCustomType =
     member this.WithFullName(getName: Func<_, _>) =
         { this with FullName = getName.Invoke(this.FullName) }
 
-    member this.WithSource source = { this with Source = source }
-
-    // TODO: RELEASE 2021-07: Remove QsCustomType.SourceFile.
-    [<Obsolete "Replaced by Source.">]
-    member this.SourceFile = Source.assemblyOrCodeFile this.Source
+    member this.WithSourceFile file = { this with SourceFile = file }
 
 
 /// Describes a valid Q# namespace element.

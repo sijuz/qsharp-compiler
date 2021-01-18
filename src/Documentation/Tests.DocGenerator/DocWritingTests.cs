@@ -29,7 +29,7 @@ namespace Microsoft.Quantum.QsCompiler.Documentation.Testing
                 new[] { AccessModifier.DefaultAccess, AccessModifier.Internal }
                 .SelectMany(access =>
                 {
-                    var source = new Source("Tests.qs", QsNullable<string>.Null);
+                    var source = "Tests.qs";
                     var unit = ResolvedType.New(QsType.UnitType);
 
                     var signature = new ResolvedSignature(
@@ -43,7 +43,7 @@ namespace Microsoft.Quantum.QsCompiler.Documentation.Testing
                         fullName: MakeFullName(access + "Operation"),
                         attributes: ImmutableArray<QsDeclarationAttribute>.Empty,
                         modifiers: new Modifiers(access),
-                        source: source,
+                        sourceFile: source,
                         location: ZeroLocation,
                         signature: signature,
                         argumentTuple: argumentTuple,
@@ -57,7 +57,7 @@ namespace Microsoft.Quantum.QsCompiler.Documentation.Testing
                         fullName: MakeFullName(access + "Type"),
                         attributes: ImmutableArray<QsDeclarationAttribute>.Empty,
                         modifiers: new Modifiers(access),
-                        source: source,
+                        sourceFile: source,
                         location: ZeroLocation,
                         type: unit,
                         typeItems: typeItems,

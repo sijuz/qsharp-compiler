@@ -127,7 +127,7 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
                 FullName = qsCallable.FullName.ToBondSchema(),
                 Attributes = qsCallable.Attributes.Select(a => a.ToBondSchema()).ToList(),
                 Modifiers = qsCallable.Modifiers.ToBondSchema(),
-                SourceFile = qsCallable.Source.CodeFile,
+                SourceFile = qsCallable.SourceFile,
                 Location = qsCallable.Location.IsNull ?
                     null :
                     qsCallable.Location.Item.ToBondSchema(),
@@ -176,7 +176,7 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
                 FullName = qsCustomType.FullName.ToBondSchema(),
                 Attributes = qsCustomType.Attributes.Select(a => a.ToBondSchema()).ToList(),
                 Modifiers = qsCustomType.Modifiers.ToBondSchema(),
-                SourceFile = qsCustomType.Source.CodeFile,
+                SourceFile = qsCustomType.SourceFile,
                 Location = qsCustomType.Location.IsNull ?
                     null :
                     qsCustomType.Location.Item.ToBondSchema(),
@@ -368,7 +368,7 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
                 Kind = qsSpecialization.Kind.ToBondSchema(),
                 Parent = qsSpecialization.Parent.ToBondSchema(),
                 Attributes = qsSpecialization.Attributes.Select(a => a.ToBondSchema()).ToList(),
-                SourceFile = qsSpecialization.Source.CodeFile,
+                SourceFile = qsSpecialization.SourceFile,
                 Location = qsSpecialization.Location.IsNull ?
                     null :
                     qsSpecialization.Location.Item.ToBondSchema(),

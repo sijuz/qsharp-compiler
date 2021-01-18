@@ -6,7 +6,6 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
 using Microsoft.Quantum.QsCompiler.DataTypes;
-using Microsoft.Quantum.QsCompiler.SyntaxTree;
 
 namespace Microsoft.Quantum.QsCompiler.BondSchemas
 {
@@ -25,9 +24,6 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
 
         private static BigInteger ToBigInteger(this ArraySegment<byte> blob) =>
             new BigInteger(blob);
-
-        private static Source ToSource(this string sourceFile) =>
-            new Source(sourceFile, QsNullable<string>.Null);
 
         private static DataTypes.Position ToCompilerObject(this Position position) =>
             DataTypes.Position.Create(
@@ -199,7 +195,7 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
                 fullName: bondQsCallable.FullName.ToCompilerObject(),
                 attributes: bondQsCallable.Attributes.Select(a => a.ToCompilerObject()).ToImmutableArray(),
                 modifiers: bondQsCallable.Modifiers.ToCompilerObject(),
-                source: bondQsCallable.SourceFile.ToSource(),
+                sourceFile: bondQsCallable.SourceFile,
                 location: bondQsCallable.Location != null ?
                     bondQsCallable.Location.ToCompilerObject().ToQsNullableGeneric() :
                     QsNullable<SyntaxTree.QsLocation>.Null,
@@ -240,7 +236,7 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
                 fullName: bondQsCustomType.FullName.ToCompilerObject(),
                 attributes: bondQsCustomType.Attributes.Select(a => a.ToCompilerObject()).ToImmutableArray(),
                 modifiers: bondQsCustomType.Modifiers.ToCompilerObject(),
-                source: bondQsCustomType.SourceFile.ToSource(),
+                sourceFile: bondQsCustomType.SourceFile,
                 location: bondQsCustomType.Location != null ?
                     bondQsCustomType.Location.ToCompilerObject().ToQsNullableGeneric() :
                     QsNullable<SyntaxTree.QsLocation>.Null,
@@ -367,7 +363,7 @@ namespace Microsoft.Quantum.QsCompiler.BondSchemas
                 kind: bondQsSpecialization.Kind.ToCompilerObject(),
                 parent: bondQsSpecialization.Parent.ToCompilerObject(),
                 attributes: bondQsSpecialization.Attributes.Select(a => a.ToCompilerObject()).ToImmutableArray(),
-                source: bondQsSpecialization.SourceFile.ToSource(),
+                sourceFile: bondQsSpecialization.SourceFile,
                 location: bondQsSpecialization.Location != null ?
                     bondQsSpecialization.Location.ToCompilerObject().ToQsNullableGeneric() :
                     QsNullable<SyntaxTree.QsLocation>.Null,
