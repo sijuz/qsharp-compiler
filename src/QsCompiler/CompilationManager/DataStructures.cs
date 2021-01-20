@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation. All rights reserved.
+﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
 using System;
@@ -23,6 +23,15 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
     /// </summary>
     internal class CodeLine
     {
+        internal enum StringContext
+        {
+            NoOpenString,
+            OpenInterpolatedArgument,
+            OpenString,
+            OpenInterpolatedString,
+            OpenStringInOpenInterpolatedArgument,
+        }
+
         internal readonly string Text;
         internal readonly string LineEnding; // contains the line break for this line (included in text)
 
@@ -44,66 +53,305 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
 
         // convention: first one opens a string, and we have the usual inclusions: {0,5} means the chars 0..4 are the content of a string
         // -> i.e. -1 means the string starts on a previous line, and an end delimiter that is equal to Text.Length means that the string continues on the next line
-        internal readonly ImmutableArray<int> StringDelimiters; // note that this property is only properly initialized *after* knowing the sourrounding lines
+        internal readonly ImmutableArray<int> StringDelimiters; // note that this property is only properly initialized *after* knowing the surrounding lines
 
-        public CodeLine(string text, IEnumerable<int> delimiters, int eolComment, int indentation, IEnumerable<int> excessBrackets)
+        internal readonly StringContext BeginningStringContext;
+        internal readonly StringContext EndingStringContext;
+
+        public CodeLine(
+            string text,
+            string lineEnding,
+            string withoutEnding,
+            string? endOfLineComment,
+            int indentation,
+            IEnumerable<int> excessBracketPositions,
+            IEnumerable<int> stringDelimiters,
+            StringContext beginningStringContext,
+            StringContext endingStringContext)
+        {
+            this.Text = text;
+            this.LineEnding = lineEnding;
+            this.WithoutEnding = withoutEnding;
+            this.EndOfLineComment = endOfLineComment;
+            this.Indentation = indentation;
+            this.ExcessBracketPositions = excessBracketPositions.ToImmutableArray();
+            this.StringDelimiters = stringDelimiters.ToImmutableArray();
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = endingStringContext;
+
+            ScopeTracking.VerifyStringDelimiters(text, stringDelimiters);
+            ScopeTracking.VerifyExcessBracketPositions(this, excessBracketPositions);
+        }
+
+        private CodeLine(StringContext beginningStringContext)
+        {
+            this.Text = string.Empty;
+            this.LineEnding = string.Empty;
+            this.WithoutEnding = string.Empty;
+            this.EndOfLineComment = null;
+            this.Indentation = 0;
+            this.ExcessBracketPositions = ImmutableArray<int>.Empty;
+            this.StringDelimiters = ImmutableArray<int>.Empty;
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = beginningStringContext;
+        }
+
+        public CodeLine(string text, StringContext beginningStringContext = StringContext.NoOpenString)
+            : this(text, beginningStringContext, 0, new List<int>())
+        {
+        }
+
+        public CodeLine(string text, StringContext beginningStringContext, int indentation, IEnumerable<int> excessBrackets)
         {
             this.Text = text;
             this.LineEnding = Utils.EndOfLine.Match(text).Value; // empty string if the matching failed
 
+            this.BeginningStringContext = beginningStringContext;
+            int commentStart;
+            var delimiters = ComputeStringDelimiters(text, ref beginningStringContext, out commentStart);
+            this.EndingStringContext = beginningStringContext; // beginningStringContext has been updated to the context at the end of the line
+
             var lineLength = text.Length - this.LineEnding.Length;
-            if (eolComment > lineLength)
+            // if there is a comment
+            if (commentStart >= 0)
             {
-                eolComment = lineLength;
+                this.WithoutEnding = text.Substring(0, commentStart);
+                var commentStr = text.Substring(commentStart, lineLength - commentStart).Trim();
+                var isDocComment = string.IsNullOrWhiteSpace(this.WithoutEnding) && (commentStr.Length - commentStr.TrimStart('/').Length == 3);
+                this.EndOfLineComment = isDocComment ? null : commentStr.Substring(2);
             }
-            this.WithoutEnding = text.Substring(0, eolComment);
-            var commentStr = text.Substring(eolComment, lineLength - eolComment).Trim();
-            var isDocComment = string.IsNullOrWhiteSpace(this.WithoutEnding) && (commentStr.Length - commentStr.TrimStart('/').Length == 3);
-            var hasComment = commentStr.StartsWith("//") && !isDocComment;
-            this.EndOfLineComment = hasComment ? commentStr.Substring(2) : null;
+            // else there is no comment
+            else
+            {
+                this.WithoutEnding = text.Substring(0, lineLength);
+                this.EndOfLineComment = null;
+            }
 
             this.StringDelimiters = delimiters.ToImmutableArray();
             this.Indentation = indentation;
             this.ExcessBracketPositions = excessBrackets.ToImmutableArray();
-
-            if (eolComment < 0 || (eolComment != text.Length && eolComment > text.Length - this.LineEnding.Length))
-            {
-                throw new ArgumentOutOfRangeException(nameof(eolComment));
-            }
             ScopeTracking.VerifyStringDelimiters(text, delimiters);
             ScopeTracking.VerifyExcessBracketPositions(this, excessBrackets);
         }
 
-        public CodeLine(string text, IEnumerable<int> delimiters, int eofComment)
-            : this(text, delimiters, eofComment, 0, new List<int>())
+        public CodeLine(string text, StringContext beginningStringContext, IEnumerable<int> delimiters, int commentStart, int indentation, IEnumerable<int> excessBrackets)
         {
+            this.Text = text;
+            this.LineEnding = Utils.EndOfLine.Match(text).Value; // empty string if the matching failed
+
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = beginningStringContext;
+
+            foreach (var delim in delimiters)
+            {
+                if (delim == -1 || delim == text.Length)
+                {
+                    continue;
+                }
+
+                var inputDelimiter = text[delim].ToString();
+                // If the input is a " preceded by a $ than the input needs to be updated to $"
+                if (delim > 0 && inputDelimiter == "\"" && text[delim - 1] == '$')
+                {
+                    inputDelimiter = "$\"";
+                }
+
+                this.EndingStringContext = MoveToNextState(this.EndingStringContext, inputDelimiter);
+            }
+            this.EndingStringContext = beginningStringContext; // beginningStringContext has been updated to the context at the end of the line
+
+            var lineLength = text.Length - this.LineEnding.Length;
+            // if there is a comment
+            if (commentStart >= 0)
+            {
+                this.WithoutEnding = text.Substring(0, commentStart);
+                var commentStr = text.Substring(commentStart, lineLength - commentStart).Trim();
+                var isDocComment = string.IsNullOrWhiteSpace(this.WithoutEnding) && (commentStr.Length - commentStr.TrimStart('/').Length == 3);
+                this.EndOfLineComment = isDocComment ? null : commentStr.Substring(2);
+            }
+            // else there is no comment
+            else
+            {
+                this.WithoutEnding = text.Substring(0, lineLength);
+                this.EndOfLineComment = null;
+            }
+
+            this.StringDelimiters = delimiters.ToImmutableArray();
+            this.Indentation = indentation;
+            this.ExcessBracketPositions = excessBrackets.ToImmutableArray();
+            ScopeTracking.VerifyStringDelimiters(text, delimiters);
+            ScopeTracking.VerifyExcessBracketPositions(this, excessBrackets);
         }
 
-        public static CodeLine Empty() => new CodeLine(string.Empty, Enumerable.Empty<int>(), 0);
-
-        internal CodeLine SetText(string newText)
+        /// <summary>
+        /// Computes the location of the string delimiters within a given text.
+        /// </summary>
+        private static IEnumerable<int> ComputeStringDelimiters(string text, ref StringContext stringContext, out int commentIndex)
         {
-            return new CodeLine(newText, this.StringDelimiters, this.WithoutEnding.Length, this.Indentation, this.ExcessBracketPositions);
+            var builder = ImmutableArray.CreateBuilder<int>();
+
+            if (stringContext >= StringContext.OpenString)
+            {
+                builder.Add(-1);
+            }
+
+            commentIndex = -1;
+            var stringLength = text.Length;
+            while (text != string.Empty)
+            {
+                // Check for a comment start if we are outside a string
+                commentIndex = stringContext >= StringContext.OpenString ? -1 : text.IndexOf("//");
+
+                var index = -1;
+                switch (stringContext)
+                {
+                    case StringContext.NoOpenString:
+                        // Find the next "
+                        index = text.IndexOf('"');
+                        break;
+                    case StringContext.OpenInterpolatedArgument:
+                        // Find the next " or }
+                        index = text.IndexOfAny(new[] { '"', '}' });
+                        break;
+                    case StringContext.OpenInterpolatedString:
+                        // Find the next " or {, neither or which being preceded by \
+                        index = text.IndexOfAny(new[] { '"', '{' });
+                        while (index > 0 && text[index - 1] == '\\')
+                        {
+                            var next = text.Substring(index + 1).IndexOfAny(new[] { '"', '{' });
+                            index = next < 0 ? next : index + 1 + next;
+                        }
+                        break;
+                    case StringContext.OpenString:
+                    case StringContext.OpenStringInOpenInterpolatedArgument:
+                        // Find the next " not preceded by \
+                        index = text.IndexOf('"');
+                        while (index > 0 && text[index - 1] == '\\')
+                        {
+                            var next = text.Substring(index + 1).IndexOf('"');
+                            index = next < 0 ? next : index + 1 + next;
+                        }
+                        break;
+                }
+
+                if (index < 0 || (commentIndex > -1 && commentIndex < index))
+                {
+                    break;
+                }
+
+                var inputDelimiter = text[index].ToString();
+                // If the input is a " preceded by a $ than the input needs to be updated to $"
+                if (index > 0 && inputDelimiter == "\"" && text[index - 1] == '$')
+                {
+                    inputDelimiter = "$\"";
+                }
+
+                builder.Add(index + stringLength - text.Length);
+                text = text.Substring(index + 1);
+                stringContext = MoveToNextState(stringContext, inputDelimiter);
+            }
+
+            // commentIndex is only nonzero if we found \\ and we were not in a string,
+            // so it should be the genuine start of a comment
+            if (commentIndex > -1)
+            {
+                commentIndex += stringLength - text.Length;
+            }
+
+            if (stringContext >= StringContext.OpenString)
+            {
+                builder.Add(stringLength);
+            }
+
+            return builder.ToImmutable();
         }
 
-        internal CodeLine SetStringDelimiters(IEnumerable<int> newStringDelimiters)
+        private static StringContext MoveToNextState(StringContext curr, string input)
         {
-            return new CodeLine(this.Text, newStringDelimiters, this.WithoutEnding.Length, this.Indentation, this.ExcessBracketPositions);
+            switch (input)
+            {
+                case "\"":
+                    switch (curr)
+                    {
+                        case StringContext.NoOpenString:
+                            return StringContext.OpenString;
+                        case StringContext.OpenInterpolatedArgument:
+                            return StringContext.OpenStringInOpenInterpolatedArgument;
+                        case StringContext.OpenString:
+                        case StringContext.OpenInterpolatedString:
+                            return StringContext.NoOpenString;
+                        case StringContext.OpenStringInOpenInterpolatedArgument:
+                            return StringContext.OpenInterpolatedArgument;
+                        default:
+                            return curr;
+                    }
+                case "{":
+                    switch (curr)
+                    {
+                        case StringContext.OpenInterpolatedArgument:
+                            throw new ArgumentException("Cannot have '{' or '}' nested inside of interpolated argument.");
+                        case StringContext.OpenInterpolatedString:
+                            return StringContext.OpenInterpolatedArgument;
+                        default:
+                            return curr;
+                    }
+                case "}":
+                    switch (curr)
+                    {
+                        case StringContext.OpenInterpolatedArgument:
+                            return StringContext.OpenInterpolatedString;
+                        default:
+                            return curr;
+                    }
+                case "$\"":
+                    switch (curr)
+                    {
+                        case StringContext.NoOpenString:
+                            return StringContext.OpenInterpolatedString;
+                        case StringContext.OpenInterpolatedArgument:
+                            throw new ArgumentException("Cannot have interpolated string nested inside of interpolated argument.");
+                        case StringContext.OpenString:
+                        case StringContext.OpenInterpolatedString:
+                            return StringContext.NoOpenString;
+                        case StringContext.OpenStringInOpenInterpolatedArgument:
+                            return StringContext.OpenInterpolatedArgument;
+                        default:
+                            return curr;
+                    }
+                default:
+                    return curr;
+            }
         }
 
-        internal CodeLine SetCommentIndex(int newCommentIndex)
-        {
-            return new CodeLine(this.Text, this.StringDelimiters, newCommentIndex, this.Indentation, this.ExcessBracketPositions);
-        }
+        public static CodeLine Empty(StringContext beginningStringContext = StringContext.NoOpenString) =>
+            new CodeLine(beginningStringContext);
 
         internal CodeLine SetIndentation(int newIndentation)
         {
-            return new CodeLine(this.Text, this.StringDelimiters, this.WithoutEnding.Length, newIndentation, this.ExcessBracketPositions);
+            return new CodeLine(
+                this.Text,
+                this.LineEnding,
+                this.WithoutEnding,
+                this.EndOfLineComment,
+                newIndentation,
+                this.ExcessBracketPositions,
+                this.StringDelimiters,
+                this.BeginningStringContext,
+                this.EndingStringContext);
         }
 
         internal CodeLine SetExcessBrackets(IEnumerable<int> newExcessBrackets)
         {
-            return new CodeLine(this.Text, this.StringDelimiters, this.WithoutEnding.Length, this.Indentation, newExcessBrackets);
+            return new CodeLine(
+                this.Text,
+                this.LineEnding,
+                this.WithoutEnding,
+                this.EndOfLineComment,
+                this.Indentation,
+                newExcessBrackets,
+                this.StringDelimiters,
+                this.BeginningStringContext,
+                this.EndingStringContext);
         }
     }
 
@@ -411,8 +659,8 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
             /// <summary>
             /// Builds the TreeNode consisting of the given fragment and children.
             /// RelativeToRoot is set to the position of the fragment start relative to the given parent start position.
-            /// Throws an ArgumentException if the given parent start position is larger than the fragment start position.
             /// </summary>
+            /// <exception cref="ArgumentException"><paramref name="parentStart"/> is larger than the start position of <paramref name="fragment"/>.</exception>
             public TreeNode(CodeFragment fragment, IReadOnlyList<TreeNode> children, Position parentStart)
             {
                 if (fragment.Range.Start < parentStart)
@@ -426,12 +674,12 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
             }
         }
 
-        public readonly NonNullable<string> Source;
-        public readonly NonNullable<string> Namespace;
-        public readonly NonNullable<string> Callable;
+        public readonly string Source;
+        public readonly string Namespace;
+        public readonly string Callable;
         public readonly IReadOnlyList<TreeNode>? Specializations;
 
-        public FragmentTree(NonNullable<string> source, NonNullable<string> ns, NonNullable<string> callable, IEnumerable<TreeNode>? specs)
+        public FragmentTree(string source, string ns, string callable, IEnumerable<TreeNode>? specs)
         {
             this.Source = source;
             this.Namespace = ns;
@@ -447,8 +695,8 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
     {
         internal Position Position { get; }
 
-        internal readonly NonNullable<string> SymbolName;
-        internal readonly Tuple<NonNullable<string>, Range> PositionedSymbol;
+        internal readonly string SymbolName;
+        internal readonly Tuple<string, Range> PositionedSymbol;
 
         internal readonly T Declaration;
         internal readonly ImmutableArray<AttributeAnnotation> Attributes;
@@ -458,7 +706,7 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
         private HeaderEntry(
             CodeFragment.TokenIndex tIndex,
             Position offset,
-            (NonNullable<string>, Range) sym,
+            (string, Range) sym,
             T decl,
             ImmutableArray<AttributeAnnotation> attributes,
             ImmutableArray<string> doc,
@@ -466,7 +714,7 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
         {
             this.Position = offset;
             this.SymbolName = sym.Item1;
-            this.PositionedSymbol = new Tuple<NonNullable<string>, Range>(sym.Item1, sym.Item2);
+            this.PositionedSymbol = new Tuple<string, Range>(sym.Item1, sym.Item2);
             this.Declaration = decl;
             this.Attributes = attributes;
             this.Documentation = doc;
@@ -479,9 +727,9 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
         /// If the symbol of the extracted declaration is not an unqualified symbol,
         /// verifies that it corresponds instead to an invalid symbol and returns null unless the keepInvalid parameter has been set to a string value.
         /// If the keepInvalid parameter has been set to a (non-null) string, uses that string as the SymbolName for the returned HeaderEntry instance.
-        /// Throws an ArgumentException if this verification fails as well.
-        /// Throws an ArgumentException if the extracted declaration is Null.
         /// </summary>
+        /// <exception cref="ArgumentException">The symbol of the extracted declaration is not an unqualified or invalid symbol.</exception>
+        /// <exception cref="ArgumentException">The extracted declaration is Null.</exception>
         internal static HeaderEntry<T>? From(
             Func<CodeFragment, QsNullable<Tuple<QsSymbol, T>>> getDeclaration,
             CodeFragment.TokenIndex tIndex,
@@ -505,7 +753,7 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
             var symRange = sym.Range.IsNull ? Range.Zero : sym.Range.Item;
             return symName == null
                 ? (HeaderEntry<T>?)null
-                : new HeaderEntry<T>(tIndex, fragment.Range.Start, (NonNullable<string>.New(symName), symRange), decl, attributes, doc, fragment.Comments);
+                : new HeaderEntry<T>(tIndex, fragment.Range.Start, (symName, symRange), decl, attributes, doc, fragment.Comments);
         }
     }
 
@@ -534,8 +782,10 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
         /// <summary>
         /// Invalidates (i.e. removes) all elements in the range [start, start + count), and
         /// updates all elements that are larger than or equal to start + count with the given lineNrChange.
-        /// Throws an ArgumentOutOfRange exception if start or count are negative, or if lineNrChange is smaller than -count.
         /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="start"/> or <paramref name="count"/> are negative, or <paramref name="lineNrChange"/> is smaller than -<paramref name="count"/>.
+        /// </exception>
         public void InvalidateOrUpdate(int start, int count, int lineNrChange)
         {
             this.namespaceDeclarations.InvalidateOrUpdate(start, count, lineNrChange);
@@ -633,7 +883,7 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
     }
 
     /// <summary>
-    /// threadsafe wrapper to SortedSet<int>
+    /// threadsafe wrapper to <see cref="SortedSet{T}"/> whose generic type argument is <see cref="int"/>.
     /// </summary>
     public class ManagedSortedSet // *don't* dispose of the sync root!
     {
@@ -697,8 +947,8 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
         /// Removes all elements in the range [start, start + count) from the set, and
         /// updates all elements that are larger than or equal to start + count with lineNr => lineNr + lineNrChange.
         /// Returns the number of removed elements.
-        /// Throws an ArgumentOutOfRange exception if start or count are negative, or if lineNrChange is smaller than -count.
         /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="start"/> or <paramref name="count"/> are negative, or <paramref name="lineNrChange"/> is smaller than -<paramref name="count"/>.</exception>
         public int InvalidateOrUpdate(int start, int count, int lineNrChange)
         {
             if (start < 0)
@@ -734,7 +984,7 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
     }
 
     /// <summary>
-    /// threadsafe wrapper to HashSet<T>
+    /// threadsafe wrapper to <see cref="HashSet{T}"/>
     /// </summary>
     public class ManagedHashSet<T> // *don't* dispose of the sync root!
     {
@@ -793,7 +1043,7 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
     }
 
     /// <summary>
-    /// threadsafe wrapper to List<T>
+    /// threadsafe wrapper to <see cref="List{T}"/>
     /// </summary>
     public class ManagedList<T> // *don't* dispose of the sync root!
     {
