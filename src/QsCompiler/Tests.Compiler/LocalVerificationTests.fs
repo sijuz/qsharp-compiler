@@ -543,8 +543,7 @@ type LocalVerificationTests() =
         this.Expect "ParensBorrow" [ Warning WarningCode.DeprecatedTupleBrackets ]
         this.Expect "NoParensBorrow" []
 
-
-    [<Fact(Skip = "The Correct Behavior for these Tests has Not Been Implemented")>]
+    [<Fact>]
     member this.``String Parsing``() =
         this.Expect "StringParsingTest1" []
         this.Expect "StringParsingTest2" []
