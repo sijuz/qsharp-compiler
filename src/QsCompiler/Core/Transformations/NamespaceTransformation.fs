@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#nowarn "44" // OnSourceFile is deprecated.
+
 namespace Microsoft.Quantum.QsCompiler.Transformations.Core
 
 open System

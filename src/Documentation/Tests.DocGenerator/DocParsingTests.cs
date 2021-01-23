@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#pragma warning disable 618 // DocComment.Example and DocCallable.WriteToFile are obsolete.
+
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;

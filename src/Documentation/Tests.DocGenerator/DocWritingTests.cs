@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#pragma warning disable 618 // DocNamespace.WriteToStream is obsolete.
+
 using System;
 using System.Collections.Immutable;
 using System.IO;
