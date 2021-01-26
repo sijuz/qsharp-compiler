@@ -3,6 +3,9 @@
 
 namespace Microsoft.Quantum.QsCompiler.SyntaxTokens
 
+#nowarn "44" // AccessModifier is deprecated.
+
+open System
 open System.Collections.Immutable
 open System.Numerics
 open Microsoft.Quantum.QsCompiler.Diagnostics
@@ -208,21 +211,98 @@ type CallableSignature =
     }
 
 /// Defines where a global declaration may be accessed.
+[<Obsolete "Use Visibility instead.">]
 [<Struct>]
 type AccessModifier =
     /// For callables and types, the default access modifier is public, which means the type or callable can be used
     /// from anywhere. For specializations, the default access modifier is the same as the parent callable.
     | DefaultAccess
+
     /// Internal access means that a type or callable may only be used from within the compilation unit in which it is
     /// declared.
     | Internal
 
 /// Used to represent Q# keywords that may be attached to a declaration to modify its visibility or behavior.
+[<Obsolete "Use Visibility instead.">]
 [<Struct>]
 type Modifiers =
     {
         /// Defines where a global declaration may be accessed.
         Access: AccessModifier
+    }
+
+/// The visibility of a symbol limits where the symbol can be seen from.
+type Visibility =
+    /// The symbol can be seen only within the compilation unit or assembly in which it is declared.
+    | Internal
+
+    /// The symbol can be seen from everywhere.
+    | Public
+
+/// The relative proximity of one code location to another in terms that are relevant to symbol visibility.
+type Proximity =
+    /// The code locations are in the same compilation unit or assembly.
+    | SameAssembly
+
+    /// The code locations are in different compilation units or assemblies.
+    | OtherAssembly
+
+module Visibility =
+    /// <summary>
+    /// Returns true if symbols with a given visibility are visible from <paramref name="proximity"/>.
+    /// </summary>
+    [<CompiledName "IsVisibleFrom">]
+    let isVisibleFrom proximity =
+        function
+        | Internal -> proximity = SameAssembly
+        | Public -> true
+
+type Visibility with
+    /// <summary>
+    /// Returns true if symbols with this visibility are visible from <paramref name="proximity"/>.
+    /// </summary>
+    member visibility.IsVisibleFrom proximity =
+        visibility |> Visibility.isVisibleFrom proximity
+
+module AccessModifier =
+    [<CompiledName "ToVisibility">]
+    [<Obsolete "Use Visibility instead.">]
+    let toVisibility defaultVisibility =
+        function
+        | DefaultAccess -> defaultVisibility
+        | AccessModifier.Internal -> Internal
+
+    [<CompiledName "FromVisibility">]
+    [<Obsolete "Use Visibility instead.">]
+    let ofVisibility =
+        function
+        | Public -> DefaultAccess
+        | Internal -> AccessModifier.Internal
+
+/// A callable declaration.
+type CallableDeclaration =
+    {
+        /// The name of the callable.
+        Name: QsSymbol
+
+        /// The visibility of the callable, or Null if the callable has the default visibility.
+        Visibility: Visibility QsNullable
+
+        /// The signature of the callable.
+        Signature: CallableSignature
+    }
+
+/// A type definition.
+type TypeDefinition =
+    {
+        /// The name of the type.
+        Name: QsSymbol
+
+        /// The visibility of the type, or Null if the type has the default visibility.
+        Visibility: Visibility QsNullable
+
+        /// The type's underlying type.
+        UnderlyingType: (QsSymbol * QsType) QsTuple
     }
 
 type QsFragmentKind =
@@ -247,13 +327,14 @@ type QsFragmentKind =
     | AdjointDeclaration of QsSpecializationGenerator
     | ControlledDeclaration of QsSpecializationGenerator
     | ControlledAdjointDeclaration of QsSpecializationGenerator
-    | OperationDeclaration of Modifiers * QsSymbol * CallableSignature
-    | FunctionDeclaration of Modifiers * QsSymbol * CallableSignature
-    | TypeDefinition of Modifiers * QsSymbol * QsTuple<QsSymbol * QsType>
+    | OperationDeclaration of CallableDeclaration
+    | FunctionDeclaration of CallableDeclaration
+    | TypeDefinition of TypeDefinition
     | DeclarationAttribute of QsSymbol * QsExpression
     | OpenDirective of QsSymbol * QsNullable<QsSymbol>
     | NamespaceDeclaration of QsSymbol
     | InvalidFragment
+
     /// returns the error code for an invalid fragment of the given kind
     member this.ErrorCode =
         match this with
