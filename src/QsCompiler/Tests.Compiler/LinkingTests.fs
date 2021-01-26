@@ -211,11 +211,7 @@ type LinkingTests(output: ITestOutputHelper) =
                 Assert.True(1 = Seq.length x)
                 Seq.item 0 x)
 
-        Assert.True
-            ((match generated.Modifiers.Access with
-              | Internal -> true
-              | _ -> false),
-             "Callables originally internal should remain internal.")
+        Assert.True(generated.Visibility = Internal, "Callables originally internal should remain internal.")
 
         let generated =
             getCallablesWithSuffix compilation Signatures.MonomorphizationNs "_IsInternalUsesPublic"
@@ -223,11 +219,7 @@ type LinkingTests(output: ITestOutputHelper) =
                 Assert.True(1 = Seq.length x)
                 Seq.item 0 x)
 
-        Assert.True
-            ((match generated.Modifiers.Access with
-              | Internal -> true
-              | _ -> false),
-             "Callables originally internal should remain internal.")
+        Assert.True(generated.Visibility = Internal, "Callables originally internal should remain internal.")
 
         let generated =
             getCallablesWithSuffix compilation Signatures.MonomorphizationNs "_IsPublicUsesInternal"
@@ -235,11 +227,7 @@ type LinkingTests(output: ITestOutputHelper) =
                 Assert.True(1 = Seq.length x)
                 Seq.item 0 x)
 
-        Assert.True
-            ((match generated.Modifiers.Access with
-              | Internal -> true
-              | _ -> false),
-             "Callables with internal arguments should be internal.")
+        Assert.True(generated.Visibility = Internal, "Callables with internal arguments should be internal.")
 
         let generated =
             getCallablesWithSuffix compilation Signatures.MonomorphizationNs "_IsPublicUsesPublic"
@@ -248,9 +236,7 @@ type LinkingTests(output: ITestOutputHelper) =
                 Seq.item 0 x)
 
         Assert.True
-            ((match generated.Modifiers.Access with
-              | DefaultAccess -> true
-              | _ -> false),
+            (generated.Visibility = Public,
              "Callables originally public should remain public if all arguments are public.")
 
 
@@ -705,11 +691,11 @@ type LinkingTests(output: ITestOutputHelper) =
                 | false, _ -> Assert.True(false, "wrong source")
 
             let onTypeDecl (tDecl: QsCustomType) =
-                AssertSource(tDecl.FullName, Source.assemblyOrCodeFile tDecl.Source, Some tDecl.Modifiers.Access)
+                AssertSource(tDecl.FullName, Source.assemblyOrCodeFile tDecl.Source, Some tDecl.Visibility)
                 tDecl
 
             let onCallableDecl (cDecl: QsCallable) =
-                AssertSource(cDecl.FullName, Source.assemblyOrCodeFile cDecl.Source, Some cDecl.Modifiers.Access)
+                AssertSource(cDecl.FullName, Source.assemblyOrCodeFile cDecl.Source, Some cDecl.Visibility)
                 cDecl
 
             let onSpecDecl (sDecl: QsSpecialization) =
