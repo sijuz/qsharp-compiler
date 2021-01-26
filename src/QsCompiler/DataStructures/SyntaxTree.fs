@@ -719,7 +719,7 @@ type Source with
                        [<Optional; DefaultParameterValue null>] ?assemblyFile) =
         { source with
             CodeFile = codeFile |> Option.defaultValue source.CodeFile
-            AssemblyFile = assemblyFile |> QsNullable<_>.FromOption |> QsNullable.orElse source.AssemblyFile
+            AssemblyFile = assemblyFile |> QsNullable.ofOption |> QsNullable.orElse source.AssemblyFile
         }
 
 
@@ -831,7 +831,7 @@ type QsCallable =
         /// contains all attributes associated with the callable
         Attributes: ImmutableArray<QsDeclarationAttribute>
         /// Represents the Q# keywords attached to the declaration that modify its behavior.
-        Modifiers: Modifiers
+        Visibility: Visibility
         /// The source where the callable is declared in.
         Source: Source
         /// Contains the location information for the declared callable.
@@ -890,7 +890,7 @@ type QsCustomType =
         /// contains all attributes associated with the type
         Attributes: ImmutableArray<QsDeclarationAttribute>
         /// Represents the Q# keywords attached to the declaration that modify its behavior.
-        Modifiers: Modifiers
+        Visibility: Visibility
         /// The source where the type is declared in.
         Source: Source
         /// Contains the location information for the declared type.

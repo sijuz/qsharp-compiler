@@ -3,6 +3,9 @@
 
 namespace Microsoft.Quantum.QsCompiler.SyntaxTokens
 
+#nowarn "44" // AccessModifier is deprecated.
+
+open System
 open System.Collections.Immutable
 open System.Numerics
 open Microsoft.Quantum.QsCompiler.Diagnostics
@@ -208,21 +211,72 @@ type CallableSignature =
     }
 
 /// Defines where a global declaration may be accessed.
+[<Obsolete "Use Visibility instead.">]
 [<Struct>]
 type AccessModifier =
     /// For callables and types, the default access modifier is public, which means the type or callable can be used
     /// from anywhere. For specializations, the default access modifier is the same as the parent callable.
     | DefaultAccess
+
     /// Internal access means that a type or callable may only be used from within the compilation unit in which it is
     /// declared.
     | Internal
 
 /// Used to represent Q# keywords that may be attached to a declaration to modify its visibility or behavior.
+[<Obsolete "Use Visibility instead.">]
 [<Struct>]
 type Modifiers =
     {
         /// Defines where a global declaration may be accessed.
         Access: AccessModifier
+    }
+
+type Visibility =
+    | Internal
+    | Public
+
+type Proximity =
+    | SameAssembly
+    | OtherAssembly
+
+module Visibility =
+    [<CompiledName "IsVisibleFrom">]
+    let isVisibleFrom proximity =
+        function
+        | Internal -> proximity = SameAssembly
+        | Public -> true
+
+type Visibility with
+    member visibility.IsVisibleFrom proximity =
+        visibility |> Visibility.isVisibleFrom proximity
+
+module AccessModifier =
+    [<CompiledName "ToVisibility">]
+    [<Obsolete "Use Visibility instead.">]
+    let toVisibility defaultVisibility =
+        function
+        | DefaultAccess -> defaultVisibility
+        | AccessModifier.Internal -> Internal
+
+    [<CompiledName "FromVisibility">]
+    [<Obsolete "Use Visibility instead.">]
+    let ofVisibility =
+        function
+        | Public -> DefaultAccess
+        | Internal -> AccessModifier.Internal
+
+type CallableDeclaration =
+    {
+        Name: QsSymbol
+        Visibility: Visibility QsNullable
+        Signature: CallableSignature
+    }
+
+type TypeDefinition =
+    {
+        Name: QsSymbol
+        Visibility: Visibility QsNullable
+        UnderlyingType: (QsSymbol * QsType) QsTuple
     }
 
 type QsFragmentKind =
@@ -247,13 +301,14 @@ type QsFragmentKind =
     | AdjointDeclaration of QsSpecializationGenerator
     | ControlledDeclaration of QsSpecializationGenerator
     | ControlledAdjointDeclaration of QsSpecializationGenerator
-    | OperationDeclaration of Modifiers * QsSymbol * CallableSignature
-    | FunctionDeclaration of Modifiers * QsSymbol * CallableSignature
-    | TypeDefinition of Modifiers * QsSymbol * QsTuple<QsSymbol * QsType>
+    | OperationDeclaration of CallableDeclaration
+    | FunctionDeclaration of CallableDeclaration
+    | TypeDefinition of TypeDefinition
     | DeclarationAttribute of QsSymbol * QsExpression
     | OpenDirective of QsSymbol * QsNullable<QsSymbol>
     | NamespaceDeclaration of QsSymbol
     | InvalidFragment
+
     /// returns the error code for an invalid fragment of the given kind
     member this.ErrorCode =
         match this with
