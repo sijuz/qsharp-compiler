@@ -4,7 +4,7 @@ variables:
   Build.Major: 0
   Build.Minor: 14
   Assembly.Version: $(Build.BuildNumber)
-  Assembly.Constants: ''
+  Assembly.Constants: ""
   Drops.Dir: $(Build.ArtifactStagingDirectory)/drops
   Nuget.Outdir: $(Drops.Dir)/nugets
   VSIX.Outdir: $(Drops.Dir)/vsix
@@ -20,20 +20,26 @@ pr:
 
 schedules:
 - cron: "0 9 * * Sat"
-  displayName: 'Build for Component Governance'
+  displayName: Build for Component Governance
   branches:
     include:
     - main
   always: true
 
-jobs:
-- job: "QsCompiler"
-  pool: 
-    vmImage: 'windows-latest'
-  steps:
-  - template: steps.yml
+pool:
+  vmImage: windows-latest
 
-  - task: ms.vss-governance-buildtask.governance-build-task-component-detection.ComponentGovernanceComponentDetection@0
-    displayName: 'Component detection'
-    inputs:
-      failOnAlert: true
+jobs:
+- job: Compiler
+  steps:
+  - template: init.yml
+  - template: steps.yml
+  - template: wrap-up.yml
+
+- job: Style
+  steps:
+  - script: dotnet tool restore
+    displayName: Restore .NET tools
+
+  - script: dotnet tool run fantomas -- --check --recurse .
+    displayName: Fantomas
