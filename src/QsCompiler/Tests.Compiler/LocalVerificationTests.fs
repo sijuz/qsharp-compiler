@@ -543,8 +543,7 @@ type LocalVerificationTests() =
         this.Expect "ParensBorrow" [ Warning WarningCode.DeprecatedTupleBrackets ]
         this.Expect "NoParensBorrow" []
 
-
-    [<Fact(Skip = "The Correct Behavior for these Tests has Not Been Implemented")>]
+    [<Fact>]
     member this.``String Parsing``() =
         this.Expect "StringParsingTest1" []
         this.Expect "StringParsingTest2" []
@@ -589,6 +588,13 @@ type LocalVerificationTests() =
         this.Expect "StringInterpolationDollarSignTest5" []
         this.Expect "StringInterpolationDollarSignTest6" []
 
+        this.Expect "StringInterpolationOpenBraceTest1" []
+        this.Expect "StringInterpolationOpenBraceTest2" []
+        this.Expect "StringInterpolationOpenBraceTest3" []
+        this.Expect "StringInterpolationOpenBraceTest4" []
+        this.Expect "StringInterpolationOpenBraceTest5" []
+        this.Expect "StringInterpolationOpenBraceTest6" []
+
         this.Expect "StringInterpolationWithCommentTest1" []
         this.Expect "StringInterpolationWithCommentTest2" []
         this.Expect "StringInterpolationWithCommentTest3" []
@@ -599,11 +605,11 @@ type LocalVerificationTests() =
         this.Expect "StringInterpolationWithCommentTest8" []
 
 
-    [<Fact(Skip = "These Tests Need Proper Error Handling")>]
+    [<Fact>]
     member this.``Nested Interpolation Strings``() =
-        this.Expect "StringNestedInterpolationTest1" []
-        this.Expect "StringNestedInterpolationTest2" []
-        this.Expect "StringNestedInterpolationTest3" []
+        this.Expect "StringNestedInterpolationTest1" [ Error ErrorCode.InvalidCharacterInInterpolatedArgument ]
+        this.Expect "StringNestedInterpolationTest2" [ Error ErrorCode.InvalidCharacterInInterpolatedArgument ]
+        this.Expect "StringNestedInterpolationTest3" [ Error ErrorCode.InvalidCharacterInInterpolatedArgument ]
 
     [<Fact>]
     member this.``Deprecated qubit allocation keywords``() =
