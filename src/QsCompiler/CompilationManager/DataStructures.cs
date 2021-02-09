@@ -23,6 +23,15 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
     /// </summary>
     internal class CodeLine
     {
+        internal enum StringContext
+        {
+            NoOpenString,
+            OpenInterpolatedArgument,
+            OpenString,
+            OpenInterpolatedString,
+            OpenStringInOpenInterpolatedArgument,
+        }
+
         internal readonly string Text;
         internal readonly string LineEnding; // contains the line break for this line (included in text)
 
@@ -41,69 +50,452 @@ namespace Microsoft.Quantum.QsCompiler.CompilationBuilder.DataStructures
 
         internal readonly int Indentation; // Note: This denotes the initial indentation at the beginning of the line
         internal readonly ImmutableArray<int> ExcessBracketPositions;
+        internal readonly ImmutableArray<int> ErrorDelimiterPositions;
 
         // convention: first one opens a string, and we have the usual inclusions: {0,5} means the chars 0..4 are the content of a string
         // -> i.e. -1 means the string starts on a previous line, and an end delimiter that is equal to Text.Length means that the string continues on the next line
-        internal readonly ImmutableArray<int> StringDelimiters; // note that this property is only properly initialized *after* knowing the sourrounding lines
+        internal readonly ImmutableArray<int> StringDelimiters; // note that this property is only properly initialized *after* knowing the surrounding lines
 
-        public CodeLine(string text, IEnumerable<int> delimiters, int eolComment, int indentation, IEnumerable<int> excessBrackets)
+        internal readonly StringContext BeginningStringContext;
+        internal readonly StringContext EndingStringContext;
+
+        /// <summary>
+        /// Verbose constructor that allows all fields to be specified.
+        /// </summary>
+        private CodeLine(
+            string text,
+            string lineEnding,
+            string withoutEnding,
+            string? endOfLineComment,
+            int indentation,
+            IEnumerable<int> excessBracketPositions,
+            IEnumerable<int> errorDelimiterPositions,
+            IEnumerable<int> stringDelimiters,
+            StringContext beginningStringContext,
+            StringContext endingStringContext)
+        {
+            this.Text = text;
+            this.LineEnding = lineEnding;
+            this.WithoutEnding = withoutEnding;
+            this.EndOfLineComment = endOfLineComment;
+            this.Indentation = indentation;
+            this.ExcessBracketPositions = excessBracketPositions.ToImmutableArray();
+            this.ErrorDelimiterPositions = errorDelimiterPositions.ToImmutableArray();
+            this.StringDelimiters = stringDelimiters.ToImmutableArray();
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = endingStringContext;
+
+            ScopeTracking.VerifyStringDelimiters(text, stringDelimiters);
+            ScopeTracking.VerifyExcessBracketPositions(this, excessBracketPositions);
+        }
+
+        /// <summary>
+        /// Constructor for an empty code line. Requires a beginning string context.
+        /// </summary>
+        private CodeLine(StringContext beginningStringContext)
+        {
+            this.Text = string.Empty;
+            this.LineEnding = string.Empty;
+            this.WithoutEnding = string.Empty;
+            this.EndOfLineComment = null;
+            this.Indentation = 0;
+            this.ExcessBracketPositions = ImmutableArray<int>.Empty;
+            this.ErrorDelimiterPositions = ImmutableArray<int>.Empty;
+            this.StringDelimiters = ImmutableArray<int>.Empty;
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = beginningStringContext;
+        }
+
+        /// <summary>
+        /// Constructs a code line from text and optionally a beginning string context.
+        /// Other information about the code line is calculated automatically.
+        /// </summary>
+        public CodeLine(string text, StringContext beginningStringContext = StringContext.NoOpenString)
+            : this(text, beginningStringContext, 0, new List<int>())
+        {
+        }
+
+        /// <summary>
+        /// Constructs a code line from text. Beginning string context, indentation, and excess brackets are also required.
+        /// Other information about the code line is calculated automatically.
+        /// </summary>
+        private CodeLine(string text, StringContext beginningStringContext, int indentation, IEnumerable<int> excessBrackets)
         {
             this.Text = text;
             this.LineEnding = Utils.EndOfLine.Match(text).Value; // empty string if the matching failed
 
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = beginningStringContext;
+
+            var delimiters = ComputeStringDelimiters(text, ref this.EndingStringContext, out var commentStart, out var errorDelimiters);
+            this.ErrorDelimiterPositions = errorDelimiters.ToImmutableArray();
+
             var lineLength = text.Length - this.LineEnding.Length;
-            if (eolComment > lineLength)
+            // if there is a comment
+            if (commentStart >= 0)
             {
-                eolComment = lineLength;
+                this.WithoutEnding = text.Substring(0, commentStart);
+                var commentStr = text.Substring(commentStart, lineLength - commentStart).Trim();
+                var isDocComment = string.IsNullOrWhiteSpace(this.WithoutEnding) && (commentStr.Length - commentStr.TrimStart('/').Length == 3);
+                this.EndOfLineComment = isDocComment ? null : commentStr.Substring(2);
             }
-            this.WithoutEnding = text.Substring(0, eolComment);
-            var commentStr = text.Substring(eolComment, lineLength - eolComment).Trim();
-            var isDocComment = string.IsNullOrWhiteSpace(this.WithoutEnding) && (commentStr.Length - commentStr.TrimStart('/').Length == 3);
-            var hasComment = commentStr.StartsWith("//") && !isDocComment;
-            this.EndOfLineComment = hasComment ? commentStr.Substring(2) : null;
+            // else there is no comment
+            else
+            {
+                this.WithoutEnding = text.Substring(0, lineLength);
+                this.EndOfLineComment = null;
+            }
 
             this.StringDelimiters = delimiters.ToImmutableArray();
             this.Indentation = indentation;
             this.ExcessBracketPositions = excessBrackets.ToImmutableArray();
-
-            if (eolComment < 0 || (eolComment != text.Length && eolComment > text.Length - this.LineEnding.Length))
-            {
-                throw new ArgumentOutOfRangeException(nameof(eolComment));
-            }
             ScopeTracking.VerifyStringDelimiters(text, delimiters);
             ScopeTracking.VerifyExcessBracketPositions(this, excessBrackets);
         }
 
-        public CodeLine(string text, IEnumerable<int> delimiters, int eofComment)
-            : this(text, delimiters, eofComment, 0, new List<int>())
+        /// <summary>
+        /// Constructs a code line using provided information. Here, delimiters are provided rather than calculated.
+        /// </summary>
+        public CodeLine(string text, StringContext beginningStringContext, IEnumerable<int> delimiters, int commentStart, int indentation, IEnumerable<int> excessBrackets)
         {
+            this.Text = text;
+            this.LineEnding = Utils.EndOfLine.Match(text).Value; // empty string if the matching failed
+
+            this.BeginningStringContext = beginningStringContext;
+            this.EndingStringContext = beginningStringContext;
+
+            var delimiterBuilder = ImmutableArray.CreateBuilder<int>();
+            var errorDelimiterBuilder = ImmutableArray.CreateBuilder<int>();
+
+            foreach (var delim in delimiters)
+            {
+                if (delim == -1 || delim == text.Length)
+                {
+                    delimiterBuilder.Add(delim);
+                    continue;
+                }
+
+                var inputDelimiter = text[delim].ToString();
+                // If the input is a " preceded by a $ than the input needs to be updated to $"
+                if (delim > 0 && inputDelimiter == "\"" && text[delim - 1] == '$')
+                {
+                    inputDelimiter = "$\"";
+                }
+
+                bool validDelimiter;
+                (this.EndingStringContext, validDelimiter) = MoveToNextState(this.EndingStringContext, inputDelimiter);
+                if (!validDelimiter)
+                {
+                    // If the erroneous delimiter is $", mark the $ as the error and treat the " as a normal string delimiter
+                    if (inputDelimiter == "$\"")
+                    {
+                        errorDelimiterBuilder.Add(delim - 1); // Backup to the $ character
+                        delimiterBuilder.Add(delim);
+                    }
+                    else
+                    {
+                        errorDelimiterBuilder.Add(delim);
+                    }
+                }
+                else
+                {
+                    delimiterBuilder.Add(delim);
+                }
+            }
+
+            var lineLength = text.Length - this.LineEnding.Length;
+            // if there is a comment
+            if (commentStart >= 0)
+            {
+                this.WithoutEnding = text.Substring(0, commentStart);
+                var commentStr = text.Substring(commentStart, lineLength - commentStart).Trim();
+                var isDocComment = string.IsNullOrWhiteSpace(this.WithoutEnding) && (commentStr.Length - commentStr.TrimStart('/').Length == 3);
+                this.EndOfLineComment = isDocComment ? null : commentStr.Substring(2);
+            }
+            // else there is no comment
+            else
+            {
+                this.WithoutEnding = text.Substring(0, lineLength);
+                this.EndOfLineComment = null;
+            }
+
+            this.StringDelimiters = delimiterBuilder.ToImmutable();
+            this.ErrorDelimiterPositions = errorDelimiterBuilder.ToImmutable();
+            this.Indentation = indentation;
+            this.ExcessBracketPositions = excessBrackets.ToImmutableArray();
+            ScopeTracking.VerifyStringDelimiters(text, this.StringDelimiters);
+            ScopeTracking.VerifyExcessBracketPositions(this, excessBrackets);
         }
 
-        public static CodeLine Empty() => new CodeLine(string.Empty, Enumerable.Empty<int>(), 0);
-
-        internal CodeLine SetText(string newText)
+        /// <summary>
+        /// Computes the location of the string delimiters within a given text.
+        /// </summary>
+        private static IEnumerable<int> ComputeStringDelimiters(string text, ref StringContext stringContext, out int commentIndex, out IEnumerable<int> errorDelimiters)
         {
-            return new CodeLine(newText, this.StringDelimiters, this.WithoutEnding.Length, this.Indentation, this.ExcessBracketPositions);
+            var delimiterBuilder = ImmutableArray.CreateBuilder<int>();
+            var errorDelimiterBuilder = ImmutableArray.CreateBuilder<int>();
+
+            if (stringContext >= StringContext.OpenString)
+            {
+                delimiterBuilder.Add(-1);
+            }
+
+            commentIndex = -1;
+            var stringLength = text.Length;
+            var openInterpolatedStringDelimiters = new[] { '"', '{' };
+            var openInterpolatedArgumentDelimiters = new[] { '"', '}' };
+
+            var pos = 0;
+            while (pos < text.Length)
+            {
+                var indexOfDelim = -1;
+                switch (stringContext)
+                {
+                    case StringContext.NoOpenString:
+                        // Find the next "
+                        indexOfDelim = text.IndexOf('"', pos);
+                        break;
+                    case StringContext.OpenInterpolatedArgument:
+                        // Find the next " or }
+                        indexOfDelim = text.IndexOfAny(openInterpolatedArgumentDelimiters, pos);
+                        break;
+                    case StringContext.OpenInterpolatedString:
+                        // Find the next " or {, neither or which being preceded by \
+                        indexOfDelim = text.IndexOfAny(openInterpolatedStringDelimiters, pos);
+                        while (indexOfDelim > 0 && text[indexOfDelim - 1] == '\\')
+                        {
+                            indexOfDelim = text.IndexOfAny(openInterpolatedStringDelimiters, indexOfDelim + 1);
+                        }
+                        break;
+                    case StringContext.OpenString:
+                    case StringContext.OpenStringInOpenInterpolatedArgument:
+                        // Find the next " not preceded by \
+                        indexOfDelim = text.IndexOf('"', pos);
+                        while (indexOfDelim > 0 && text[indexOfDelim - 1] == '\\')
+                        {
+                            indexOfDelim = text.IndexOf('"', indexOfDelim + 1);
+                        }
+                        break;
+                }
+
+                // Check for a comment start if we are outside a string
+                commentIndex = stringContext >= StringContext.OpenString ? -1 : text.IndexOf("//", pos);
+                if (indexOfDelim < 0 || (commentIndex > -1 && commentIndex < indexOfDelim))
+                {
+                    break;
+                }
+
+                // Get the delimiter
+                var inputDelimiter = text[indexOfDelim].ToString();
+                // If the input is a " preceded by a $ than the input needs to be updated to $"
+                if (indexOfDelim > 0 && inputDelimiter == "\"" && text[indexOfDelim - 1] == '$')
+                {
+                    inputDelimiter = "$\"";
+                }
+
+                // Check if delimiter is valid and move to the next string context state
+                bool validDelimiter;
+                (stringContext, validDelimiter) = MoveToNextState(stringContext, inputDelimiter);
+                if (!validDelimiter)
+                {
+                    // If the erroneous delimiter is $", mark the $ as the error and treat the " as a normal string delimiter
+                    if (inputDelimiter == "$\"")
+                    {
+                        errorDelimiterBuilder.Add(indexOfDelim - 1); // Backup to the $ character
+                        delimiterBuilder.Add(indexOfDelim);
+                    }
+                    else
+                    {
+                        errorDelimiterBuilder.Add(indexOfDelim);
+                    }
+                }
+                else
+                {
+                    delimiterBuilder.Add(indexOfDelim);
+                }
+                pos = indexOfDelim + 1;
+            }
+
+            /*/
+
+            while (text != string.Empty)
+            {
+                // Check for a comment start if we are outside a string
+                commentIndex = stringContext >= StringContext.OpenString ? -1 : text.IndexOf("//");
+
+                var index = -1;
+                switch (stringContext)
+                {
+                    case StringContext.NoOpenString:
+                        // Find the next "
+                        index = text.IndexOf('"');
+                        break;
+                    case StringContext.OpenInterpolatedArgument:
+                        // Find the next " or }
+                        index = text.IndexOfAny(openInterpolatedArgumentDelimiters);
+                        break;
+                    case StringContext.OpenInterpolatedString:
+                        // Find the next " or {, neither or which being preceded by \
+                        index = text.IndexOfAny(openInterpolatedStringDelimiters);
+                        while (index > 0 && text[index - 1] == '\\')
+                        {
+                            var next = text.Substring(index + 1).IndexOfAny(openInterpolatedStringDelimiters);
+                            index = next < 0 ? next : index + 1 + next;
+                        }
+                        break;
+                    case StringContext.OpenString:
+                    case StringContext.OpenStringInOpenInterpolatedArgument:
+                        // Find the next " not preceded by \
+                        index = text.IndexOf('"');
+                        while (index > 0 && text[index - 1] == '\\')
+                        {
+                            var next = text.Substring(index + 1).IndexOf('"');
+                            index = next < 0 ? next : index + 1 + next;
+                        }
+                        break;
+                }
+
+                if (index < 0 || (commentIndex > -1 && commentIndex < index))
+                {
+                    break;
+                }
+
+                var inputDelimiter = text[index].ToString();
+                // If the input is a " preceded by a $ than the input needs to be updated to $"
+                if (index > 0 && inputDelimiter == "\"" && text[index - 1] == '$')
+                {
+                    inputDelimiter = "$\"";
+                }
+
+                var pos = index + stringLength - text.Length;
+                bool validDelimiter;
+                (stringContext, validDelimiter) = MoveToNextState(stringContext, inputDelimiter);
+                if (!validDelimiter)
+                {
+                    // If the erroneous delimiter is $", mark the $ as the error and treat the " as a normal string delimiter
+                    if (inputDelimiter == "$\"")
+                    {
+                        errorDelimiterBuilder.Add(pos - 1); // Backup to the $ character
+                        delimiterBuilder.Add(pos);
+                    }
+                    else
+                    {
+                        errorDelimiterBuilder.Add(pos);
+                    }
+                }
+                else
+                {
+                    delimiterBuilder.Add(pos);
+                }
+                text = text.Substring(index + 1);
+            }
+
+            // commentIndex is only nonzero if we found "//" and we were not in a string,
+            // so it should be the genuine start of a comment
+            if (commentIndex > -1)
+            {
+                commentIndex += stringLength - text.Length;
+            }
+
+            /**/
+
+            if (stringContext >= StringContext.OpenString)
+            {
+                delimiterBuilder.Add(stringLength);
+            }
+
+            errorDelimiters = errorDelimiterBuilder.ToImmutable();
+            return delimiterBuilder.ToImmutable();
         }
 
-        internal CodeLine SetStringDelimiters(IEnumerable<int> newStringDelimiters)
+        private static (StringContext NextState, bool IsValidInput) MoveToNextState(StringContext curr, string input)
         {
-            return new CodeLine(this.Text, newStringDelimiters, this.WithoutEnding.Length, this.Indentation, this.ExcessBracketPositions);
+            switch (input)
+            {
+                case "\"":
+                    switch (curr)
+                    {
+                        case StringContext.NoOpenString:
+                            return (StringContext.OpenString, true);
+                        case StringContext.OpenInterpolatedArgument:
+                            return (StringContext.OpenStringInOpenInterpolatedArgument, true);
+                        case StringContext.OpenString:
+                        case StringContext.OpenInterpolatedString:
+                            return (StringContext.NoOpenString, true);
+                        case StringContext.OpenStringInOpenInterpolatedArgument:
+                            return (StringContext.OpenInterpolatedArgument, true);
+                        default:
+                            return (curr, true);
+                    }
+                case "{":
+                    switch (curr)
+                    {
+                        case StringContext.OpenInterpolatedArgument:
+                            return (curr, false);
+                        case StringContext.OpenInterpolatedString:
+                            return (StringContext.OpenInterpolatedArgument, true);
+                        default:
+                            return (curr, true);
+                    }
+                case "}":
+                    switch (curr)
+                    {
+                        case StringContext.OpenInterpolatedArgument:
+                            return (StringContext.OpenInterpolatedString, true);
+                        default:
+                            return (curr, true);
+                    }
+                case "$\"":
+                    switch (curr)
+                    {
+                        case StringContext.NoOpenString:
+                            return (StringContext.OpenInterpolatedString, true);
+                        case StringContext.OpenInterpolatedArgument:
+                            return (StringContext.OpenStringInOpenInterpolatedArgument, false);
+                        case StringContext.OpenString:
+                        case StringContext.OpenInterpolatedString:
+                            return (StringContext.NoOpenString, true);
+                        case StringContext.OpenStringInOpenInterpolatedArgument:
+                            return (StringContext.OpenInterpolatedArgument, true);
+                        default:
+                            return (curr, true);
+                    }
+                default:
+                    return (curr, true);
+            }
         }
 
-        internal CodeLine SetCommentIndex(int newCommentIndex)
-        {
-            return new CodeLine(this.Text, this.StringDelimiters, newCommentIndex, this.Indentation, this.ExcessBracketPositions);
-        }
+        public static CodeLine Empty(StringContext beginningStringContext = StringContext.NoOpenString) =>
+            new CodeLine(beginningStringContext);
 
         internal CodeLine SetIndentation(int newIndentation)
         {
-            return new CodeLine(this.Text, this.StringDelimiters, this.WithoutEnding.Length, newIndentation, this.ExcessBracketPositions);
+            return new CodeLine(
+                this.Text,
+                this.LineEnding,
+                this.WithoutEnding,
+                this.EndOfLineComment,
+                newIndentation,
+                this.ExcessBracketPositions,
+                this.ErrorDelimiterPositions,
+                this.StringDelimiters,
+                this.BeginningStringContext,
+                this.EndingStringContext);
         }
 
         internal CodeLine SetExcessBrackets(IEnumerable<int> newExcessBrackets)
         {
-            return new CodeLine(this.Text, this.StringDelimiters, this.WithoutEnding.Length, this.Indentation, newExcessBrackets);
+            return new CodeLine(
+                this.Text,
+                this.LineEnding,
+                this.WithoutEnding,
+                this.EndOfLineComment,
+                this.Indentation,
+                newExcessBrackets,
+                this.ErrorDelimiterPositions,
+                this.StringDelimiters,
+                this.BeginningStringContext,
+                this.EndingStringContext);
         }
     }
 
